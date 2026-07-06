@@ -1,13 +1,13 @@
 # Technical Specification Document (TSD)
 
 Project: Franchise Ordering Platform  
-Tanggal update: 2026-07-05
+Tanggal update: 2026-07-06
 
 ## 1. Stack teknologi
 
 - Frontend: React + TypeScript + Vite.
-- Backend: Express + TypeScript.
-- Database: SQLite via `better-sqlite3`.
+- Backend: Express + TypeScript melalui Netlify Functions dan `serverless-http`.
+- Database: Netlify Database/PostgreSQL via `pg` dan `@netlify/database`.
 - Auth: JWT.
 - Styling: CSS modular per halaman.
 
@@ -24,12 +24,16 @@ Tanggal update: 2026-07-05
 | `src/ReportsModule.tsx` | Dashboard laporan operasional/keuangan, filter periode, ekspor CSV, dan transaksi biaya/modal. |
 | `src/franchise.ts` | Default settings, hook settings, dan apply warna brand. |
 | `src/api.ts` | API client frontend. |
-| `server/index.ts` | Routing API dan middleware auth. |
-| `server/db.ts` | Skema database, query, seed, dan settings. |
+| `server/index.ts` | Routing API async, middleware auth/RBAC, dan Express app untuk Function. |
+| `server/contracts.ts` | Kontrak tipe domain bersama untuk API dan provider database. |
+| `server/postgres-db.ts` | Query PostgreSQL, transaksi, seed idempotent, dan agregasi laporan. |
+| `netlify/functions/api.ts` | Entry point Express Netlify Function. |
+| `netlify/database/migrations/0001_initial_schema.sql` | Baseline schema PostgreSQL yang diterapkan otomatis. |
+| `netlify.toml` | Build, bundling Function, routing API, dan fallback SPA. |
 
 ## 3. Database
 
-Database default: `data/franchise.db`.
+Database produksi memakai Netlify Database/PostgreSQL melalui `NETLIFY_DB_URL`. Pengembangan lokal memakai emulator PostgreSQL dari `@netlify/vite-plugin`.
 
 Tabel utama:
 
@@ -81,7 +85,7 @@ Tabel utama:
 - `inventory_items` menyimpan nama, SKU unik, satuan, `current_stock`, `minimum_stock`, `unit_cost`, `linked_product_id`, `usage_per_sale`, dan status aktif.
 - `stock_movements` menyimpan tipe mutasi, jumlah, stok sebelum/sesudah, catatan, pembuat, dan waktu.
 - Tipe mutasi: `in`, `out`, `adjustment_add`, dan `adjustment_subtract`.
-- Update stok dan insert riwayat dijalankan dalam satu transaksi SQLite.
+- Update stok dan insert riwayat dijalankan dalam satu transaksi PostgreSQL dengan row locking pada operasi pengurangan stok.
 - Saat order dibuat, seluruh inventory aktif yang tertaut ke produk dikurangi sebesar `quantity × usage_per_sale`; proses order dibatalkan atomik jika stok tidak cukup.
 
 ### Report dan keuangan
@@ -265,21 +269,19 @@ Production:
 
 ```bash
 npm run build
-npm start
 ```
 
-### 8.1 Deployment Render
+### 8.1 Deployment Netlify
 
-- Infrastructure as Code: `render.yaml` di root repository.
-- Service: Node.js Web Service, paket `free`, region `singapore`, branch `main`.
-- Build command: `npm ci && npm run build`.
-- Start command: `npm start`.
-- Health check: `GET /api/health`.
-- `PORT` disediakan otomatis oleh Render dan sudah dibaca oleh `server/index.ts`.
-- `APP_JWT_SECRET` dibuat otomatis oleh Render.
-- `APP_ADMIN_PASSWORD`, `APP_MANAGER_PASSWORD`, dan `APP_CASHIER_PASSWORD` memakai `sync: false`, sehingga nilainya diminta pada pembuatan Blueprint dan tidak masuk Git.
-- Frontend hasil Vite dilayani Express dari folder `dist`; route non-API menggunakan fallback `index.html`.
-- SQLite memakai filesystem service yang bersifat ephemeral pada paket gratis. Data runtime dan gambar Data URL tidak dijamin bertahan setelah sleep, restart, atau redeploy; deployment produksi harus memakai penyimpanan persisten.
+- Infrastructure as Code memakai `netlify.toml`; build command `npm run build` dan publish directory `dist`.
+- `netlify/functions/api.ts` membungkus Express dengan `serverless-http`; `/api/*` di-rewrite ke Function dan `/*` memakai fallback SPA.
+- `@netlify/database` memicu provisioning Netlify Database, sedangkan migration SQL diterapkan sebelum deploy dipublikasikan.
+- Provider `server/postgres-db.ts` memakai connection string dari `getConnectionString()` dan pool `pg`.
+- Seed settings, role permission, akun awal, kategori, produk, dan promosi bersifat idempotent serta memakai advisory lock.
+- Checkout dan stock movement memakai transaksi PostgreSQL; inventory terkait dikunci dengan `FOR UPDATE` untuk mencegah overselling.
+- Vite memakai `@netlify/vite-plugin` agar `npm run dev` mengemulasikan Functions, redirects, environment, dan PostgreSQL lokal pada port 5175.
+- Secret produksi disimpan pada environment variable Netlify: `APP_JWT_SECRET`, `APP_ADMIN_PASSWORD`, `APP_MANAGER_PASSWORD`, dan `APP_CASHIER_PASSWORD`.
+- Paket Free memiliki 300 kredit per bulan dan project pause otomatis jika limit tercapai.
 
 ## 9. Aturan update dokumen
 
@@ -296,6 +298,7 @@ Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan br
 
 | Tanggal | Perubahan teknis |
 |---|---|
+| 2026-07-06 | Memigrasikan backend ke Express Netlify Function, database ke Netlify PostgreSQL, query async/transactional, migration otomatis, Vite emulator lokal, dan routing SPA/API melalui `netlify.toml`. |
 | 2026-07-06 | Menambahkan `render.yaml` untuk Web Service gratis region Singapura, build/start command, health check, secret env, auto-deploy branch `main`, dan dokumentasi keterbatasan filesystem ephemeral. |
 | 2026-07-05 | Menambahkan tabel `role_permissions`, default matrix RBAC, endpoint `/api/permissions/me` dan `/api/admin/rbac`, guard permission per modul, serta UI tab RBAC Admin. |
 | 2026-07-05 | Menambahkan tabel `menu_categories`, seed/migrasi kategori dari produk lama, endpoint kategori publik/manager, validasi produk terhadap kategori database, tab Kategori khusus Manager, dan dropdown produk berbasis kategori API. |

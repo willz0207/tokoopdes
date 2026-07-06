@@ -1,7 +1,7 @@
 # Functional Specification Document (FSD)
 
 Project: Franchise Ordering Platform  
-Tanggal update: 2026-07-05
+Tanggal update: 2026-07-06
 
 ## 1. Tujuan
 
@@ -152,13 +152,14 @@ Perubahan pengaturan langsung memengaruhi halaman toko, login, cashier, tracking
 - Permission **Admin - RBAC** wajib aktif agar Admin tidak terkunci dari pengaturan akses.
 - Permission RBAC untuk Cashier/Manager dikunci nonaktif; pengaturan RBAC hanya dapat dikelola Admin.
 
-### Hosting publik Render
+### Hosting publik Netlify
 
-- Aplikasi dapat dipublikasikan sebagai satu Web Service Node.js melalui Blueprint `render.yaml`.
-- Render memberikan domain publik acak `*.onrender.com` tanpa halaman verifikasi pengunjung.
-- Konfigurasi memilih paket gratis dan region Singapura, menjalankan health check `/api/health`, serta melakukan deploy otomatis dari branch `main`.
-- Password Admin, Manager, dan Cashier diisi sebagai secret saat Blueprint dibuat dan tidak disimpan di repository.
-- Hosting gratis ini ditujukan untuk demo. Database SQLite dan gambar Data URL berada pada filesystem sementara sehingga data dapat kembali ke seed awal setelah service sleep, restart, atau redeploy.
+- Aplikasi dipublikasikan melalui Netlify dengan domain publik `*.netlify.app` tanpa verifikasi pengunjung atau kartu kredit pada paket Free.
+- Frontend Vite dilayani dari CDN, sedangkan route `/api/*` dijalankan sebagai satu Express Netlify Function.
+- Netlify Database menyediakan PostgreSQL persisten untuk akun, produk, pesanan, inventory, laporan, RBAC, dan pengaturan franchise.
+- Migration database dijalankan otomatis sebelum production deploy dipublikasikan.
+- Password Admin, Manager, Cashier, dan JWT secret disimpan sebagai environment variable Netlify dan tidak masuk repository.
+- Paket Free memakai batas 300 kredit per bulan; project akan pause jika batas habis dan aktif kembali pada periode berikutnya.
 
 ## 5. Aturan dokumen
 
@@ -175,6 +176,7 @@ Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus me
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-06 | Memigrasikan hosting ke Netlify Free, Express ke Netlify Functions, SQLite ke Netlify Database/PostgreSQL persisten, migration otomatis, routing SPA/API, dan emulator lokal Vite. |
 | 2026-07-06 | Menambahkan Blueprint Render untuk hosting publik gratis, domain `onrender.com`, secret credential saat deploy, health check, auto-deploy, serta batasan penyimpanan SQLite sementara. |
 | 2026-07-05 | Menambahkan RBAC per modul untuk Admin, tabel permission role, tab RBAC, menu dashboard berbasis permission, dan validasi permission di backend. |
 | 2026-07-05 | Menambahkan modul kategori menu custom berbasis database, endpoint kategori publik/manager, tab Kategori khusus Manager, validasi produk terhadap kategori database, dan sinkronisasi kategori ke storefront. |

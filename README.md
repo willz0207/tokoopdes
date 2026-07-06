@@ -1,6 +1,6 @@
 # Franchise Ordering Platform
 
-Website pemesanan online berbasis React + TypeScript dengan backend Express + SQLite. Project ini dibuat agar bisa dipakai untuk berbagai franchise makanan/minuman tanpa brand hardcode.
+Website pemesanan online berbasis React + TypeScript dengan backend Express pada Netlify Functions dan database PostgreSQL persisten. Project ini dibuat agar bisa dipakai untuk berbagai franchise makanan/minuman tanpa brand hardcode.
 
 ## Fitur utama
 
@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-Frontend berjalan di `http://localhost:5175` dan backend di `http://localhost:3001`.
+Website dan API lokal berjalan pada `http://localhost:5175`. Plugin Vite Netlify menjalankan emulasi Functions dan PostgreSQL lokal secara otomatis.
 
 ## Konfigurasi
 
@@ -41,17 +41,17 @@ Salin `.env.example` menjadi `.env`, lalu ganti nilai rahasia sebelum publikasi.
 - `APP_MANAGER_EMAIL`
 - `APP_MANAGER_PASSWORD`
 - `VITE_WHATSAPP_NUMBER`
-- `DATABASE_PATH` opsional
+- `NETLIFY_DB_URL` dikelola otomatis oleh Netlify Database; jangan simpan connection string di Git.
 
-Database default tersimpan di `data/franchise.db`.
+Schema PostgreSQL dikelola melalui migration `netlify/database/migrations/0001_initial_schema.sql`.
 
-## Deploy ke Render
+## Deploy ke Netlify
 
-Project menyediakan Blueprint `render.yaml` untuk satu Web Service Node.js gratis di region Singapura. Build menggunakan `npm ci && npm run build`, server dijalankan dengan `npm start`, dan health check memakai `/api/health`.
+Project menyediakan `netlify.toml`, Netlify Function `netlify/functions/api.ts`, serta Netlify Database. Build menggunakan `npm run build`, folder publik adalah `dist`, route `/api/*` diteruskan ke Express Function, dan route aplikasi memakai fallback `index.html`.
 
-Saat membuat Blueprint, isi password Admin, Manager, dan Cashier pada form rahasia Render. Jangan menyimpan password tersebut di repository. Domain publik dibuat otomatis dalam format `*.onrender.com`.
+Setelah repository dihubungkan, Netlify memprovisikan PostgreSQL dan menerapkan migration secara otomatis. Isi `APP_JWT_SECRET`, `APP_ADMIN_PASSWORD`, `APP_MANAGER_PASSWORD`, dan `APP_CASHIER_PASSWORD` sebagai environment variable rahasia sebelum penggunaan publik.
 
-> Catatan demo: filesystem paket gratis Render bersifat sementara. Database SQLite dan gambar yang disimpan sebagai Data URL dapat kembali ke kondisi awal setelah service sleep, restart, atau redeploy. Gunakan database/storage persisten sebelum dipakai untuk transaksi produksi.
+Paket Free Netlify memiliki batas 300 kredit per bulan. Jika batas habis, project berhenti sementara sampai periode berikutnya. Data bisnis tetap disimpan di PostgreSQL, bukan filesystem Function yang sementara.
 
 ## Dokumen analisis
 

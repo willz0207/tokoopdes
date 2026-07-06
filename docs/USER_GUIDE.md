@@ -1,7 +1,7 @@
 # User Guide
 
 Project: Franchise Ordering Platform  
-Tanggal update: 2026-07-05
+Tanggal update: 2026-07-06
 
 ## 1. Tujuan panduan
 
@@ -11,7 +11,7 @@ Panduan ini menjelaskan penggunaan aplikasi untuk Pelanggan, Cashier, Manager, d
 
 1. Buka terminal di folder project.
 2. Jalankan `npm run dev`.
-3. Tunggu API dan WEB berstatus aktif.
+3. Tunggu Vite dan emulasi Netlify berstatus aktif.
 4. Buka `http://localhost:5175`.
 
 Alamat halaman utama:
@@ -253,12 +253,12 @@ Setiap role memiliki menu profil di bagian kanan atas. Menu ini digunakan untuk:
 - Gunakan PNG, JPG/JPEG, WebP, atau GIF.
 - Gunakan file maksimal sekitar 2 MB.
 
-### Mengakses versi Render
+### Mengakses versi Netlify
 
-- Buka alamat publik `*.onrender.com` yang diberikan setelah deploy selesai; pengunjung tidak memerlukan verifikasi tambahan.
-- Service gratis dapat tidur setelah tidak aktif. Permintaan pertama berikutnya mungkin menampilkan halaman loading sekitar satu menit.
-- Jika data kembali ke awal setelah service aktif kembali atau setelah deploy baru, hal tersebut merupakan batasan filesystem sementara pada paket gratis. Gunakan deployment dengan database/storage persisten untuk data operasional nyata.
-- Kredensial publik mengikuti password rahasia yang diisi saat pembuatan Blueprint Render, bukan password yang tersimpan di Git.
+- Buka alamat publik `*.netlify.app` yang diberikan setelah deploy; pengunjung tidak memerlukan verifikasi tambahan.
+- Website, API, dan database tersedia pada domain yang sama. Data operasional disimpan di PostgreSQL persisten.
+- Jika project tidak dapat diakses dan limit Free sudah habis, tunggu reset periode atau tingkatkan paket dari dashboard Netlify.
+- Kredensial publik mengikuti password environment variable yang disimpan di Netlify, bukan password yang tersimpan di Git.
 
 ## 10. Aturan pembaruan dokumen
 
@@ -272,6 +272,7 @@ Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib 
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-06 | Menambahkan panduan akses Netlify, API satu domain, PostgreSQL persisten, credential environment, dan batas kredit paket Free. |
 | 2026-07-06 | Menambahkan panduan akses deployment Render, waktu bangun service gratis, credential deploy, dan batasan data SQLite pada filesystem sementara. |
 | 2026-07-05 | Menambahkan panduan RBAC Admin per modul, default hak akses, efek tab dashboard berbasis permission, dan pemecahan masalah akses ditolak. |
 | 2026-07-05 | Menambahkan panduan kategori menu custom khusus Manager, efek kategori aktif/nonaktif pada storefront, serta catatan akses Admin terhadap kategori. |

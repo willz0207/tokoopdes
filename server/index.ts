@@ -4,8 +4,23 @@ import helmet from 'helmet'
 import jwt from 'jsonwebtoken'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import {
+import * as storage from './postgres-db.js'
+import type {
+  FranchiseSettingsRecord,
+  MenuCategoryRecord,
+  NewOrderInput,
+  PermissionModule,
+  ProductRecord,
+  ProductAddonInput,
+  ProductInput,
+  PromotionRecord,
+  StockMovementType,
+  FinancialEntryType,
+  PaymentMethod,
+  UserRole,
+} from './contracts.js'
+
+const {
   authenticateUser,
   changeUserPassword,
   createMenuCategory,
@@ -16,7 +31,6 @@ import {
   createStockMovement,
   createFinancialEntry,
   createUser,
-  databasePath,
   deleteCashier,
   deleteInventoryItem,
   deleteMenuCategory,
@@ -49,28 +63,16 @@ import {
   updatePromotion,
   updateProduct,
   updateRolePermissions,
-  type FranchiseSettingsRecord,
-  type MenuCategoryRecord,
-  type NewOrderInput,
-  type PermissionModule,
-  type ProductRecord,
-  type ProductAddonInput,
-  type ProductInput,
-  type PromotionRecord,
-  type StockMovementType,
-  type FinancialEntryType,
-  type PaymentMethod,
-  type UserRole,
-} from './db.js'
+} = storage
 
-const app = express()
-const port = Number(process.env.PORT || 3001)
+export const app = express()
 const isProduction = process.env.NODE_ENV === 'production'
 const adminPassword = process.env.APP_ADMIN_PASSWORD || (isProduction ? '' : 'admin123')
 const jwtSecret = process.env.APP_JWT_SECRET || (isProduction ? '' : 'franchise-local-secret')
 const allowedTones = ['gold', 'cream', 'red', 'orange', 'yellow', 'pink', 'peach', 'blue']
 const allowedStatuses = ['new', 'preparing', 'ready', 'delivering', 'completed', 'cancelled']
 const allowedPaymentMethods: PaymentMethod[] = ['cash', 'qris', 'bank_transfer', 'ewallet']
+const isUniqueError = (error: unknown) => (error as { code?: string })?.code === '23505' || (error instanceof Error && /UNIQUE|duplicate key/i.test(error.message))
 
 if (!adminPassword || !jwtSecret) {
   throw new Error('APP_ADMIN_PASSWORD dan APP_JWT_SECRET wajib diisi untuk mode production.')
@@ -90,14 +92,14 @@ interface AuthenticatedRequest extends Request {
   auth?: AuthPayload
 }
 
-const requireRoles = (...roles: AppRole[]) => (request: Request, response: Response, next: NextFunction) => {
+const requireRoles = (...roles: AppRole[]) => async (request: Request, response: Response, next: NextFunction) => {
   const token = request.headers.authorization?.replace(/^Bearer\s+/i, '')
   if (!token) return response.status(401).json({ message: 'Silakan login untuk melanjutkan.' })
   try {
     const payload = jwt.verify(token, jwtSecret) as AuthPayload
     if (!roles.includes(payload.role)) return response.status(403).json({ message: 'Anda tidak memiliki akses ke halaman ini.' })
     if (payload.userId) {
-      const user = getUserById(payload.userId)
+      const user = await getUserById(payload.userId)
       if (!user || !user.active || user.role !== payload.role) return response.status(401).json({ message: 'Akun sudah tidak aktif. Silakan hubungi manager.' })
     } else if (payload.role !== 'admin') {
       return response.status(401).json({ message: 'Sesi login tidak valid.' })
@@ -111,9 +113,9 @@ const requireRoles = (...roles: AppRole[]) => (request: Request, response: Respo
 
 const requireModuleAccess = (module: PermissionModule, ...roles: AppRole[]) => [
   requireRoles(...roles),
-  (request: Request, response: Response, next: NextFunction) => {
+  async (request: Request, response: Response, next: NextFunction) => {
     const auth = (request as AuthenticatedRequest).auth
-    if (!auth || !hasModuleAccess(auth.role, module)) {
+    if (!auth || !(await hasModuleAccess(auth.role, module))) {
       return response.status(403).json({ message: `Role ${auth?.role || 'ini'} tidak memiliki akses ke modul ini.` })
     }
     next()
@@ -121,23 +123,23 @@ const requireModuleAccess = (module: PermissionModule, ...roles: AppRole[]) => [
 ]
 const requireAnyModuleAccess = (modules: PermissionModule[], ...roles: AppRole[]) => [
   requireRoles(...roles),
-  (request: Request, response: Response, next: NextFunction) => {
+  async (request: Request, response: Response, next: NextFunction) => {
     const auth = (request as AuthenticatedRequest).auth
-    if (!auth || !modules.some((module) => hasModuleAccess(auth.role, module))) {
+    if (!auth || !(await Promise.all(modules.map((module) => hasModuleAccess(auth.role, module)))).some(Boolean)) {
       return response.status(403).json({ message: `Role ${auth?.role || 'ini'} tidak memiliki akses ke modul ini.` })
     }
     next()
   },
 ]
 
-const normalizeProduct = (body: Partial<ProductRecord>): ProductInput => {
+const normalizeProduct = async (body: Partial<ProductRecord>): Promise<ProductInput> => {
   const price = Number(body.price)
   const originalPrice = body.originalPrice ? Number(body.originalPrice) : undefined
   const imageUrl = body.imageUrl?.trim()
   const category = String(body.category || '').trim()
   if (!body.name?.trim() || !body.description?.trim()) throw new Error('Nama dan deskripsi produk wajib diisi.')
   if (!Number.isFinite(price) || price < 0) throw new Error('Harga produk tidak valid.')
-  if (!category || !menuCategoryExists(category)) throw new Error('Kategori produk tidak valid. Tambahkan kategori lewat menu Manager terlebih dahulu.')
+  if (!category || !(await menuCategoryExists(category))) throw new Error('Kategori produk tidak valid. Tambahkan kategori lewat menu Manager terlebih dahulu.')
   if (imageUrl && imageUrl.length > 3_000_000) throw new Error('Ukuran foto produk terlalu besar. Maksimal sekitar 2 MB.')
   if (imageUrl && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(imageUrl)) throw new Error('Format foto produk tidak valid.')
   const addonRows = Array.isArray(body.addons) ? body.addons : []
@@ -248,27 +250,28 @@ const normalizeFinancialEntry = (body: Record<string, unknown>) => {
   return { type, category, amount, paymentMethod, note: note || undefined, entryDate }
 }
 
-app.get('/api/health', (_request, response) => {
-  response.json({ ok: true, database: path.basename(databasePath) })
+app.get('/api/health', async (_request, response) => {
+  await getFranchiseSettings()
+  response.json({ ok: true, database: storage.databaseLabel })
 })
 
-app.get('/api/settings', (_request, response) => {
-  response.json(getFranchiseSettings())
+app.get('/api/settings', async (_request, response) => {
+  response.json(await getFranchiseSettings())
 })
 
-app.get('/api/categories', (_request, response) => {
-  response.json(getMenuCategories(false))
+app.get('/api/categories', async (_request, response) => {
+  response.json(await getMenuCategories(false))
 })
 
-app.get('/api/products', (_request, response) => {
-  response.json(getProducts())
+app.get('/api/products', async (_request, response) => {
+  response.json(await getProducts())
 })
 
-app.get('/api/promotions', (_request, response) => {
-  response.json(getPromotions())
+app.get('/api/promotions', async (_request, response) => {
+  response.json(await getPromotions())
 })
 
-app.post('/api/orders', requireRoles('customer'), (request, response) => {
+app.post('/api/orders', requireRoles('customer'), async (request, response) => {
   try {
     const input = request.body as Partial<NewOrderInput>
     if (!input.customerName?.trim()) throw new Error('Nama pemesan wajib diisi.')
@@ -281,7 +284,7 @@ app.post('/api/orders', requireRoles('customer'), (request, response) => {
       || (item.addonIds !== undefined && (!Array.isArray(item.addonIds) || item.addonIds.length > 20 || item.addonIds.some((id) => !Number.isInteger(id)))))) {
       throw new Error('Jumlah produk tidak valid.')
     }
-    const order = createOrder({
+    const order = await createOrder({
       customerId: (request as AuthenticatedRequest).auth!.userId!,
       customerName: input.customerName.trim(),
       phone: input.phone.trim(),
@@ -298,7 +301,7 @@ app.post('/api/orders', requireRoles('customer'), (request, response) => {
   }
 })
 
-app.post('/api/auth/register', (request, response) => {
+app.post('/api/auth/register', async (request, response) => {
   try {
     const name = String(request.body?.name || '').trim()
     const email = String(request.body?.email || '').trim().toLowerCase()
@@ -306,67 +309,67 @@ app.post('/api/auth/register', (request, response) => {
     if (name.length < 2) throw new Error('Nama minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email tidak valid.')
     if (password.length < 8) throw new Error('Password minimal 8 karakter.')
-    const user = createUser({ name, email, password, role: 'customer' })
+    const user = await createUser({ name, email, password, role: 'customer' })
     const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email }, jwtSecret, { expiresIn: '7d' })
     response.status(201).json({ token, user })
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'Email sudah terdaftar.'
       : error instanceof Error ? error.message : 'Pendaftaran gagal.'
     response.status(400).json({ message })
   }
 })
 
-app.post('/api/auth/login', (request, response) => {
+app.post('/api/auth/login', async (request, response) => {
   const email = String(request.body?.email || '').trim().toLowerCase()
   const password = String(request.body?.password || '')
   const role = String(request.body?.role || '') as UserRole
   if (!['customer', 'cashier', 'manager', 'admin'].includes(role)) return response.status(400).json({ message: 'Tipe pengguna tidak valid.' })
-  const user = authenticateUser(email, password, role)
+  const user = await authenticateUser(email, password, role)
   if (!user) return response.status(401).json({ message: 'Email, password, atau tipe pengguna salah.' })
   const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email }, jwtSecret, { expiresIn: '7d' })
   response.json({ token, user })
 })
 
-app.get('/api/auth/me', requireRoles('customer', 'cashier', 'manager', 'admin'), (request, response) => {
-  const user = getUserById((request as AuthenticatedRequest).auth!.userId!)
+app.get('/api/auth/me', requireRoles('customer', 'cashier', 'manager', 'admin'), async (request, response) => {
+  const user = await getUserById((request as AuthenticatedRequest).auth!.userId!)
   if (!user) return response.status(404).json({ message: 'Pengguna tidak ditemukan.' })
   response.json(user)
 })
 
-app.get('/api/permissions/me', requireRoles('cashier', 'manager', 'admin'), (request, response) => {
+app.get('/api/permissions/me', requireRoles('cashier', 'manager', 'admin'), async (request, response) => {
   const auth = (request as AuthenticatedRequest).auth!
-  response.json({ role: auth.role, modules: getRolePermissions(auth.role) })
+  response.json({ role: auth.role, modules: await getRolePermissions(auth.role) })
 })
 
-app.get('/api/admin/rbac', ...requireModuleAccess('rbac', 'admin'), (_request, response) => {
-  response.json(getRolePermissionMatrix())
+app.get('/api/admin/rbac', ...requireModuleAccess('rbac', 'admin'), async (_request, response) => {
+  response.json(await getRolePermissionMatrix())
 })
 
-app.put('/api/admin/rbac', ...requireModuleAccess('rbac', 'admin'), (request, response) => {
-  response.json(updateRolePermissions(request.body?.permissions || request.body || {}))
+app.put('/api/admin/rbac', ...requireModuleAccess('rbac', 'admin'), async (request, response) => {
+  response.json(await updateRolePermissions(request.body?.permissions || request.body || {}))
 })
 
-app.put('/api/profile', requireRoles('customer', 'cashier', 'manager', 'admin'), (request, response) => {
+app.put('/api/profile', requireRoles('customer', 'cashier', 'manager', 'admin'), async (request, response) => {
   try {
     const name = String(request.body?.name || '').trim()
     const email = String(request.body?.email || '').trim().toLowerCase()
     if (name.length < 2) throw new Error('Nama minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email tidak valid.')
-    const user = updateUserProfile((request as AuthenticatedRequest).auth!.userId!, { name, email })
+    const user = await updateUserProfile((request as AuthenticatedRequest).auth!.userId!, { name, email })
     if (!user) return response.status(404).json({ message: 'Pengguna tidak ditemukan.' })
     response.json(user)
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE') ? 'Email sudah digunakan.' : error instanceof Error ? error.message : 'Profil gagal diperbarui.'
+    const message = isUniqueError(error) ? 'Email sudah digunakan.' : error instanceof Error ? error.message : 'Profil gagal diperbarui.'
     response.status(400).json({ message })
   }
 })
 
-app.put('/api/profile/password', requireRoles('customer', 'cashier', 'manager', 'admin'), (request, response) => {
+app.put('/api/profile/password', requireRoles('customer', 'cashier', 'manager', 'admin'), async (request, response) => {
   const currentPassword = String(request.body?.currentPassword || '')
   const newPassword = String(request.body?.newPassword || '')
   if (newPassword.length < 8) return response.status(400).json({ message: 'Password baru minimal 8 karakter.' })
-  const changed = changeUserPassword((request as AuthenticatedRequest).auth!.userId!, currentPassword, newPassword)
+  const changed = await changeUserPassword((request as AuthenticatedRequest).auth!.userId!, currentPassword, newPassword)
   if (!changed) return response.status(400).json({ message: 'Password saat ini salah.' })
   response.json({ changed: true })
 })
@@ -379,112 +382,112 @@ app.post('/api/auth/admin', (request, response) => {
   response.json({ token })
 })
 
-app.get('/api/customer/orders', requireRoles('customer'), (request, response) => {
-  response.json(getCustomerOrders((request as AuthenticatedRequest).auth!.userId!))
+app.get('/api/customer/orders', requireRoles('customer'), async (request, response) => {
+  response.json(await getCustomerOrders((request as AuthenticatedRequest).auth!.userId!))
 })
 
-app.get('/api/cashier/stats', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), (_request, response) => {
-  response.json(getDashboardStats())
+app.get('/api/cashier/stats', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getDashboardStats())
 })
 
-app.get('/api/cashier/orders', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), (_request, response) => {
-  response.json(getOrders())
+app.get('/api/cashier/orders', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getOrders())
 })
 
-app.patch('/api/cashier/orders/:id/status', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), (request, response) => {
+app.patch('/api/cashier/orders/:id/status', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (request, response) => {
   const status = String(request.body?.status || '')
   if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
-  const order = updateOrderStatus(String(request.params.id), status)
+  const order = await updateOrderStatus(String(request.params.id), status)
   if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
   response.json(order)
 })
 
-app.get('/api/manager/categories', ...requireAnyModuleAccess(['categories', 'products'], 'manager', 'admin'), (_request, response) => {
-  response.json(getMenuCategories(true, true))
+app.get('/api/manager/categories', ...requireAnyModuleAccess(['categories', 'products'], 'manager', 'admin'), async (_request, response) => {
+  response.json(await getMenuCategories(true, true))
 })
 
-app.post('/api/manager/categories', ...requireModuleAccess('categories', 'manager', 'admin'), (request, response) => {
+app.post('/api/manager/categories', ...requireModuleAccess('categories', 'manager', 'admin'), async (request, response) => {
   try {
-    response.status(201).json(createMenuCategory(normalizeMenuCategory(request.body)))
+    response.status(201).json(await createMenuCategory(normalizeMenuCategory(request.body)))
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'Nama kategori sudah digunakan.'
       : error instanceof Error ? error.message : 'Kategori gagal dibuat.'
     response.status(400).json({ message })
   }
 })
 
-app.put('/api/manager/categories/:id', ...requireModuleAccess('categories', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/categories/:id', ...requireModuleAccess('categories', 'manager', 'admin'), async (request, response) => {
   try {
-    const category = updateMenuCategory(Number(request.params.id), normalizeMenuCategory(request.body))
+    const category = await updateMenuCategory(Number(request.params.id), normalizeMenuCategory(request.body))
     if (!category) return response.status(404).json({ message: 'Kategori tidak ditemukan.' })
     response.json(category)
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'Nama kategori sudah digunakan.'
       : error instanceof Error ? error.message : 'Kategori gagal diperbarui.'
     response.status(400).json({ message })
   }
 })
 
-app.patch('/api/manager/categories/:id/active', ...requireModuleAccess('categories', 'manager', 'admin'), (request, response) => {
-  const category = setMenuCategoryActive(Number(request.params.id), Boolean(request.body?.active))
+app.patch('/api/manager/categories/:id/active', ...requireModuleAccess('categories', 'manager', 'admin'), async (request, response) => {
+  const category = await setMenuCategoryActive(Number(request.params.id), Boolean(request.body?.active))
   if (!category) return response.status(404).json({ message: 'Kategori tidak ditemukan.' })
   response.json(category)
 })
 
-app.delete('/api/manager/categories/:id', ...requireModuleAccess('categories', 'manager', 'admin'), (request, response) => {
-  const result = deleteMenuCategory(Number(request.params.id))
+app.delete('/api/manager/categories/:id', ...requireModuleAccess('categories', 'manager', 'admin'), async (request, response) => {
+  const result = await deleteMenuCategory(Number(request.params.id))
   if (!result.deleted && !result.archived) return response.status(404).json({ message: 'Kategori tidak ditemukan.' })
   response.json(result)
 })
 
-app.get('/api/manager/products', ...requireAnyModuleAccess(['products', 'inventory'], 'manager', 'admin'), (_request, response) => {
-  response.json(getProducts(true))
+app.get('/api/manager/products', ...requireAnyModuleAccess(['products', 'inventory'], 'manager', 'admin'), async (_request, response) => {
+  response.json(await getProducts(true))
 })
 
-app.post('/api/manager/products', ...requireModuleAccess('products', 'manager', 'admin'), (request, response) => {
-  try { response.status(201).json(createProduct(normalizeProduct(request.body))) }
+app.post('/api/manager/products', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
+  try { response.status(201).json(await createProduct(await normalizeProduct(request.body))) }
   catch (error) { response.status(400).json({ message: error instanceof Error ? error.message : 'Produk gagal dibuat.' }) }
 })
 
-app.put('/api/manager/products/:id', ...requireModuleAccess('products', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/products/:id', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
   try {
-    const product = updateProduct(Number(request.params.id), normalizeProduct(request.body))
+    const product = await updateProduct(Number(request.params.id), await normalizeProduct(request.body))
     if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
     response.json(product)
   } catch (error) { response.status(400).json({ message: error instanceof Error ? error.message : 'Produk gagal diperbarui.' }) }
 })
 
-app.patch('/api/manager/products/:id/active', ...requireModuleAccess('products', 'manager', 'admin'), (request, response) => {
-  const product = setProductActive(Number(request.params.id), Boolean(request.body?.active))
+app.patch('/api/manager/products/:id/active', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
+  const product = await setProductActive(Number(request.params.id), Boolean(request.body?.active))
   if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
   response.json(product)
 })
 
-app.delete('/api/manager/products/:id', ...requireModuleAccess('products', 'manager', 'admin'), (request, response) => {
-  const result = deleteProduct(Number(request.params.id))
+app.delete('/api/manager/products/:id', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
+  const result = await deleteProduct(Number(request.params.id))
   if (!result.deleted && !result.archived) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
   response.json(result)
 })
 
-app.get('/api/manager/settings', ...requireModuleAccess('settings', 'manager', 'admin'), (_request, response) => {
-  response.json(getFranchiseSettings())
+app.get('/api/manager/settings', ...requireModuleAccess('settings', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getFranchiseSettings())
 })
 
-app.put('/api/manager/settings', ...requireModuleAccess('settings', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/settings', ...requireModuleAccess('settings', 'manager', 'admin'), async (request, response) => {
   try {
-    response.json(updateFranchiseSettings(request.body as Partial<FranchiseSettingsRecord>))
+    response.json(await updateFranchiseSettings(request.body as Partial<FranchiseSettingsRecord>))
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Pengaturan franchise gagal disimpan.' })
   }
 })
 
-app.get('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), (_request, response) => {
-  response.json(getCashiers())
+app.get('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getCashiers())
 })
 
-app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), (request, response) => {
+app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (request, response) => {
   try {
     const name = String(request.body?.name || '').trim()
     const email = String(request.body?.email || '').trim().toLowerCase()
@@ -492,16 +495,16 @@ app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
     if (password.length < 8) throw new Error('Password cashier minimal 8 karakter.')
-    response.status(201).json(createUser({ name, email, password, role: 'cashier' }))
+    response.status(201).json(await createUser({ name, email, password, role: 'cashier' }))
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'Email cashier sudah terdaftar.'
       : error instanceof Error ? error.message : 'Cashier gagal dibuat.'
     response.status(400).json({ message })
   }
 })
 
-app.put('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (request, response) => {
   try {
     const id = Number(request.params.id)
     const name = String(request.body?.name || '').trim()
@@ -512,114 +515,114 @@ app.put('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
     if (password && password.length < 8) throw new Error('Password baru minimal 8 karakter.')
-    const cashier = updateCashier(id, { name, email, password: password || undefined, active })
+    const cashier = await updateCashier(id, { name, email, password: password || undefined, active })
     if (!cashier) return response.status(404).json({ message: 'Cashier tidak ditemukan.' })
     response.json(cashier)
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'Email cashier sudah terdaftar.'
       : error instanceof Error ? error.message : 'Cashier gagal diperbarui.'
     response.status(400).json({ message })
   }
 })
 
-app.delete('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager', 'admin'), (request, response) => {
+app.delete('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (request, response) => {
   try {
     const id = Number(request.params.id)
     if (!Number.isInteger(id) || id < 1) return response.status(400).json({ message: 'ID cashier tidak valid.' })
-    if (!deleteCashier(id)) return response.status(404).json({ message: 'Cashier tidak ditemukan.' })
+    if (!(await deleteCashier(id))) return response.status(404).json({ message: 'Cashier tidak ditemukan.' })
     response.json({ deleted: true })
   } catch {
     response.status(400).json({ message: 'Cashier tidak dapat dihapus.' })
   }
 })
 
-app.get('/api/manager/promotions', ...requireModuleAccess('promotions', 'manager', 'admin'), (_request, response) => {
-  response.json(getPromotions(true))
+app.get('/api/manager/promotions', ...requireModuleAccess('promotions', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getPromotions(true))
 })
 
-app.post('/api/manager/promotions', ...requireModuleAccess('promotions', 'manager', 'admin'), (request, response) => {
-  try { response.status(201).json(createPromotion(normalizePromotion(request.body))) }
-  catch (error) { response.status(400).json({ message: error instanceof Error && error.message.includes('UNIQUE') ? 'Kode promo sudah digunakan.' : error instanceof Error ? error.message : 'Promosi gagal dibuat.' }) }
+app.post('/api/manager/promotions', ...requireModuleAccess('promotions', 'manager', 'admin'), async (request, response) => {
+  try { response.status(201).json(await createPromotion(normalizePromotion(request.body))) }
+  catch (error) { response.status(400).json({ message: isUniqueError(error) ? 'Kode promo sudah digunakan.' : error instanceof Error ? error.message : 'Promosi gagal dibuat.' }) }
 })
 
-app.put('/api/manager/promotions/:id', ...requireModuleAccess('promotions', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/promotions/:id', ...requireModuleAccess('promotions', 'manager', 'admin'), async (request, response) => {
   try {
-    const promotion = updatePromotion(Number(request.params.id), normalizePromotion(request.body))
+    const promotion = await updatePromotion(Number(request.params.id), normalizePromotion(request.body))
     if (!promotion) return response.status(404).json({ message: 'Promosi tidak ditemukan.' })
     response.json(promotion)
-  } catch (error) { response.status(400).json({ message: error instanceof Error && error.message.includes('UNIQUE') ? 'Kode promo sudah digunakan.' : error instanceof Error ? error.message : 'Promosi gagal diperbarui.' }) }
+  } catch (error) { response.status(400).json({ message: isUniqueError(error) ? 'Kode promo sudah digunakan.' : error instanceof Error ? error.message : 'Promosi gagal diperbarui.' }) }
 })
 
-app.delete('/api/manager/promotions/:id', ...requireModuleAccess('promotions', 'manager', 'admin'), (request, response) => {
-  if (!deletePromotion(Number(request.params.id))) return response.status(404).json({ message: 'Promosi tidak ditemukan.' })
+app.delete('/api/manager/promotions/:id', ...requireModuleAccess('promotions', 'manager', 'admin'), async (request, response) => {
+  if (!(await deletePromotion(Number(request.params.id)))) return response.status(404).json({ message: 'Promosi tidak ditemukan.' })
   response.json({ deleted: true })
 })
 
-app.get('/api/manager/inventory', ...requireModuleAccess('inventory', 'manager', 'admin'), (_request, response) => {
-  response.json(getInventorySnapshot())
+app.get('/api/manager/inventory', ...requireModuleAccess('inventory', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getInventorySnapshot())
 })
 
-app.post('/api/manager/inventory/items', ...requireModuleAccess('inventory', 'manager', 'admin'), (request, response) => {
+app.post('/api/manager/inventory/items', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   try {
-    const item = createInventoryItem(normalizeInventoryItem(request.body as Record<string, unknown>, true), (request as AuthenticatedRequest).auth?.userId)
+    const item = await createInventoryItem(normalizeInventoryItem(request.body as Record<string, unknown>, true), (request as AuthenticatedRequest).auth?.userId)
     response.status(201).json(item)
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'SKU inventory sudah digunakan.'
       : error instanceof Error ? error.message : 'Item inventory gagal dibuat.'
     response.status(400).json({ message })
   }
 })
 
-app.put('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 'manager', 'admin'), (request, response) => {
+app.put('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   try {
     const id = Number(request.params.id)
     if (!Number.isInteger(id) || id < 1) throw new Error('ID inventory tidak valid.')
     const input = normalizeInventoryItem(request.body as Record<string, unknown>, false)
-    const item = updateInventoryItem(id, input)
+    const item = await updateInventoryItem(id, input)
     if (!item) return response.status(404).json({ message: 'Item inventory tidak ditemukan.' })
     response.json(item)
   } catch (error) {
-    const message = error instanceof Error && error.message.includes('UNIQUE')
+    const message = isUniqueError(error)
       ? 'SKU inventory sudah digunakan.'
       : error instanceof Error ? error.message : 'Item inventory gagal diperbarui.'
     response.status(400).json({ message })
   }
 })
 
-app.delete('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 'manager', 'admin'), (request, response) => {
+app.delete('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   const id = Number(request.params.id)
   if (!Number.isInteger(id) || id < 1) return response.status(400).json({ message: 'ID inventory tidak valid.' })
-  const result = deleteInventoryItem(id)
+  const result = await deleteInventoryItem(id)
   if (!result.deleted && !result.archived) return response.status(404).json({ message: 'Item inventory tidak ditemukan.' })
   response.json(result)
 })
 
-app.post('/api/manager/inventory/movements', ...requireModuleAccess('inventory', 'manager', 'admin'), (request, response) => {
+app.post('/api/manager/inventory/movements', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   try {
-    const movement = createStockMovement(normalizeStockMovement(request.body as Record<string, unknown>), (request as AuthenticatedRequest).auth?.userId)
+    const movement = await createStockMovement(normalizeStockMovement(request.body as Record<string, unknown>), (request as AuthenticatedRequest).auth?.userId)
     response.status(201).json(movement)
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Pergerakan stok gagal dicatat.' })
   }
 })
 
-app.get('/api/manager/reports', ...requireModuleAccess('reports', 'manager', 'admin'), (request, response) => {
+app.get('/api/manager/reports', ...requireModuleAccess('reports', 'manager', 'admin'), async (request, response) => {
   try {
     const today = new Date().toISOString().slice(0, 10)
     const from = normalizeDate(request.query.from || `${today.slice(0, 8)}01`, 'Tanggal awal')
     const to = normalizeDate(request.query.to || today, 'Tanggal akhir')
     if (from > to) throw new Error('Tanggal awal tidak boleh setelah tanggal akhir.')
-    response.json(getReportData(from, to))
+    response.json(await getReportData(from, to))
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Laporan gagal dibuat.' })
   }
 })
 
-app.post('/api/manager/financial-entries', ...requireModuleAccess('reports', 'manager', 'admin'), (request, response) => {
+app.post('/api/manager/financial-entries', ...requireModuleAccess('reports', 'manager', 'admin'), async (request, response) => {
   try {
-    response.status(201).json(createFinancialEntry(
+    response.status(201).json(await createFinancialEntry(
       normalizeFinancialEntry(request.body as Record<string, unknown>),
       (request as AuthenticatedRequest).auth?.userId,
     ))
@@ -628,44 +631,44 @@ app.post('/api/manager/financial-entries', ...requireModuleAccess('reports', 'ma
   }
 })
 
-app.delete('/api/manager/financial-entries/:id', ...requireModuleAccess('reports', 'manager', 'admin'), (request, response) => {
+app.delete('/api/manager/financial-entries/:id', ...requireModuleAccess('reports', 'manager', 'admin'), async (request, response) => {
   const id = Number(request.params.id)
   if (!Number.isInteger(id) || id < 1) return response.status(400).json({ message: 'ID transaksi tidak valid.' })
-  if (!deleteFinancialEntry(id)) return response.status(404).json({ message: 'Transaksi keuangan tidak ditemukan.' })
+  if (!(await deleteFinancialEntry(id))) return response.status(404).json({ message: 'Transaksi keuangan tidak ditemukan.' })
   response.json({ deleted: true })
 })
 
-app.get('/api/admin/stats', ...requireModuleAccess('cashier_station', 'admin'), (_request, response) => {
-  response.json(getDashboardStats())
+app.get('/api/admin/stats', ...requireModuleAccess('cashier_station', 'admin'), async (_request, response) => {
+  response.json(await getDashboardStats())
 })
 
-app.get('/api/admin/orders', ...requireModuleAccess('cashier_station', 'admin'), (_request, response) => {
-  response.json(getOrders())
+app.get('/api/admin/orders', ...requireModuleAccess('cashier_station', 'admin'), async (_request, response) => {
+  response.json(await getOrders())
 })
 
-app.patch('/api/admin/orders/:id/status', ...requireModuleAccess('cashier_station', 'admin'), (request, response) => {
+app.patch('/api/admin/orders/:id/status', ...requireModuleAccess('cashier_station', 'admin'), async (request, response) => {
   const status = String(request.body?.status || '')
   if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
-  const order = updateOrderStatus(String(request.params.id), status)
+  const order = await updateOrderStatus(String(request.params.id), status)
   if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
   response.json(order)
 })
 
-app.get('/api/admin/products', ...requireModuleAccess('products', 'admin'), (_request, response) => {
-  response.json(getProducts(true))
+app.get('/api/admin/products', ...requireModuleAccess('products', 'admin'), async (_request, response) => {
+  response.json(await getProducts(true))
 })
 
-app.post('/api/admin/products', ...requireModuleAccess('products', 'admin'), (request, response) => {
+app.post('/api/admin/products', ...requireModuleAccess('products', 'admin'), async (request, response) => {
   try {
-    response.status(201).json(createProduct(normalizeProduct(request.body)))
+    response.status(201).json(await createProduct(await normalizeProduct(request.body)))
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Produk gagal dibuat.' })
   }
 })
 
-app.put('/api/admin/products/:id', ...requireModuleAccess('products', 'admin'), (request, response) => {
+app.put('/api/admin/products/:id', ...requireModuleAccess('products', 'admin'), async (request, response) => {
   try {
-    const product = updateProduct(Number(request.params.id), normalizeProduct(request.body))
+    const product = await updateProduct(Number(request.params.id), await normalizeProduct(request.body))
     if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
     response.json(product)
   } catch (error) {
@@ -673,14 +676,13 @@ app.put('/api/admin/products/:id', ...requireModuleAccess('products', 'admin'), 
   }
 })
 
-app.patch('/api/admin/products/:id/active', ...requireModuleAccess('products', 'admin'), (request, response) => {
-  const product = setProductActive(Number(request.params.id), Boolean(request.body?.active))
+app.patch('/api/admin/products/:id/active', ...requireModuleAccess('products', 'admin'), async (request, response) => {
+  const product = await setProductActive(Number(request.params.id), Boolean(request.body?.active))
   if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
   response.json(product)
 })
 
-const currentDirectory = path.dirname(fileURLToPath(import.meta.url))
-const distDirectory = path.resolve(currentDirectory, '..', 'dist')
+const distDirectory = path.resolve(process.cwd(), 'dist')
 if (existsSync(distDirectory)) {
   app.use(express.static(distDirectory))
   app.get(/^(?!\/api).*/, (_request, response) => response.sendFile(path.join(distDirectory, 'index.html')))
@@ -689,9 +691,4 @@ if (existsSync(distDirectory)) {
 app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => {
   console.error(error)
   response.status(500).json({ message: 'Terjadi masalah pada server.' })
-})
-
-app.listen(port, '0.0.0.0', () => {
-  console.log(`Franchise API aktif di http://localhost:${port}`)
-  console.log(`Database: ${databasePath}`)
 })

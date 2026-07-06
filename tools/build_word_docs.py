@@ -501,15 +501,16 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.10 Hosting Publik Render", 2)
+    add_heading(doc, "4.10 Hosting Publik Netlify", 2)
     add_bullets(
         doc,
         (
-            "Aplikasi dapat dipublikasikan sebagai satu Web Service Node.js melalui Blueprint render.yaml.",
-            "Render memberikan domain publik acak *.onrender.com tanpa halaman verifikasi pengunjung.",
-            "Konfigurasi memakai paket gratis, region Singapura, health check /api/health, dan auto-deploy branch main.",
-            "Password Admin, Manager, dan Cashier diisi sebagai secret saat Blueprint dibuat dan tidak disimpan di repository.",
-            "Hosting gratis ditujukan untuk demo; SQLite dan gambar Data URL berada pada filesystem sementara sehingga data dapat kembali ke seed awal setelah sleep, restart, atau redeploy.",
+            "Aplikasi dipublikasikan melalui Netlify dengan domain *.netlify.app tanpa verifikasi pengunjung atau kartu kredit pada paket Free.",
+            "Frontend Vite dilayani CDN, sedangkan route /api/* dijalankan sebagai Express Netlify Function.",
+            "Netlify Database menyediakan PostgreSQL persisten untuk akun, produk, pesanan, inventory, laporan, RBAC, dan pengaturan franchise.",
+            "Migration database dijalankan otomatis sebelum production deploy dipublikasikan.",
+            "Password Admin, Manager, Cashier, dan JWT secret disimpan sebagai environment variable Netlify dan tidak masuk repository.",
+            "Paket Free memakai batas 300 kredit per bulan; project pause jika batas habis dan aktif kembali pada periode berikutnya.",
         ),
     )
 
@@ -522,6 +523,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-06", "Memigrasikan hosting ke Netlify Free, Express ke Netlify Functions, SQLite ke Netlify Database/PostgreSQL persisten, migration otomatis, routing SPA/API, dan emulator lokal Vite."),
             ("2026-07-06", "Menambahkan Blueprint Render untuk hosting publik gratis, domain onrender.com, secret credential saat deploy, health check, auto-deploy, dan batasan penyimpanan SQLite sementara."),
             ("2026-07-05", "Menambahkan RBAC per modul untuk Admin, tabel permission role, tab RBAC, menu dashboard berbasis permission, dan validasi permission di backend."),
             ("2026-07-05", "Menambahkan modul kategori menu custom berbasis database, endpoint kategori publik/manager, tab Kategori khusus Manager, dan sinkronisasi kategori ke storefront."),
@@ -554,8 +556,8 @@ def build_tsd() -> None:
         ("Layer", "Teknologi"),
         (
             ("Frontend", "React + TypeScript + Vite."),
-            ("Backend", "Express + TypeScript."),
-            ("Database", "SQLite via better-sqlite3."),
+            ("Backend", "Express + TypeScript melalui Netlify Functions dan serverless-http."),
+            ("Database", "Netlify Database/PostgreSQL via pg dan @netlify/database."),
             ("Auth", "JWT."),
             ("Styling", "CSS modular per halaman."),
         ),
@@ -576,14 +578,18 @@ def build_tsd() -> None:
             ("src/ReportsModule.tsx", "Dashboard Report operasional/keuangan, filter periode, ekspor CSV, dan transaksi biaya/modal."),
             ("src/franchise.ts", "Default settings, hook settings, dan apply warna brand."),
             ("src/api.ts", "API client frontend."),
-            ("server/index.ts", "Routing API dan middleware auth."),
-            ("server/db.ts", "Skema database, query, seed, dan settings."),
+            ("server/index.ts", "Routing API async, middleware auth/RBAC, dan Express app untuk Function."),
+            ("server/contracts.ts", "Kontrak tipe domain bersama untuk API dan provider database."),
+            ("server/postgres-db.ts", "Query PostgreSQL, transaksi, seed idempotent, dan agregasi laporan."),
+            ("netlify/functions/api.ts", "Entry point Express Netlify Function."),
+            ("netlify/database/migrations/0001_initial_schema.sql", "Baseline schema PostgreSQL yang diterapkan otomatis."),
+            ("netlify.toml", "Build, bundling Function, routing API, dan fallback SPA."),
         ),
         widths=(2.25, 4.25),
     )
 
     add_heading(doc, "3. Database", 1)
-    add_body(doc, "Database default: data/franchise.db.")
+    add_body(doc, "Database produksi memakai Netlify Database/PostgreSQL melalui NETLIFY_DB_URL. Pengembangan lokal memakai emulator PostgreSQL dari @netlify/vite-plugin.")
     add_table(
         doc,
         ("Tabel", "Kegunaan"),
@@ -648,7 +654,7 @@ def build_tsd() -> None:
         doc,
         (
             "Tipe mutasi: in, out, adjustment_add, adjustment_subtract.",
-            "Update current_stock dan insert stock_movements berjalan dalam satu transaksi SQLite.",
+            "Update current_stock dan insert stock_movements berjalan dalam satu transaksi PostgreSQL dengan row locking.",
             "Mutasi ditolak jika menghasilkan stok negatif.",
             "Order mengurangi item terkait sebesar quantity x usage_per_sale dan membuat stock movement otomatis.",
         ),
@@ -755,22 +761,24 @@ def build_tsd() -> None:
         (
             ("Development", "npm run dev"),
             ("Build", "npm run build"),
-            ("Production", "npm run build lalu npm start"),
+            ("Production", "npm run build; Netlify menerbitkan dist dan Function."),
         ),
         widths=(1.65, 4.85),
     )
 
-    add_heading(doc, "8.1 Deployment Render", 2)
+    add_heading(doc, "8.1 Deployment Netlify", 2)
     add_bullets(
         doc,
         (
-            "Infrastructure as Code menggunakan render.yaml di root repository.",
-            "Service berupa Node.js Web Service paket free, region singapore, dan branch main.",
-            "Build command npm ci && npm run build; start command npm start.",
-            "Health check menggunakan GET /api/health dan PORT disediakan otomatis oleh Render.",
-            "APP_JWT_SECRET dibuat otomatis; password Admin, Manager, dan Cashier memakai sync: false agar diminta saat Blueprint dibuat dan tidak masuk Git.",
-            "Express melayani frontend Vite dari dist dan memberi fallback index.html untuk route non-API.",
-            "Filesystem paket gratis bersifat ephemeral; SQLite dan gambar Data URL tidak dijamin bertahan setelah sleep, restart, atau redeploy.",
+            "Infrastructure as Code memakai netlify.toml; build command npm run build dan publish directory dist.",
+            "netlify/functions/api.ts membungkus Express dengan serverless-http; /api/* di-rewrite ke Function dan /* memakai fallback SPA.",
+            "@netlify/database memicu provisioning Netlify Database dan migration SQL diterapkan sebelum deploy dipublikasikan.",
+            "server/postgres-db.ts memakai connection string dari getConnectionString() dan pool pg.",
+            "Seed settings, role permission, akun awal, kategori, produk, dan promosi bersifat idempotent dengan advisory lock.",
+            "Checkout dan stock movement memakai transaksi PostgreSQL serta FOR UPDATE untuk mencegah overselling.",
+            "@netlify/vite-plugin mengemulasikan Functions, redirects, environment, dan PostgreSQL lokal pada port 5175.",
+            "Secret produksi disimpan pada environment variable Netlify: APP_JWT_SECRET serta password Admin, Manager, dan Cashier.",
+            "Paket Free memiliki 300 kredit per bulan dan project pause otomatis jika limit tercapai.",
         ),
     )
 
@@ -787,6 +795,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-06", "Memigrasikan backend ke Express Netlify Function, database ke Netlify PostgreSQL, query async/transactional, migration otomatis, Vite emulator lokal, dan routing SPA/API melalui netlify.toml."),
             ("2026-07-06", "Menambahkan render.yaml untuk Web Service gratis region Singapura, build/start command, health check, secret env, auto-deploy branch main, dan dokumentasi filesystem ephemeral."),
             ("2026-07-05", "Menambahkan role_permissions, default matrix RBAC, endpoint /api/permissions/me dan /api/admin/rbac, guard permission per modul, serta UI tab RBAC Admin."),
             ("2026-07-05", "Menambahkan menu_categories, seed/migrasi kategori, endpoint kategori publik/manager, validasi produk ke kategori database, tab Kategori khusus Manager, dan dropdown produk berbasis API."),
@@ -827,7 +836,7 @@ def build_user_guide() -> None:
         (
             "Buka terminal pada folder project.",
             "Jalankan npm run dev.",
-            "Tunggu API dan WEB berstatus aktif.",
+            "Tunggu Vite dan emulasi Netlify berstatus aktif.",
             "Buka http://localhost:5175 pada browser.",
         ),
     )
@@ -1082,14 +1091,14 @@ def build_user_guide() -> None:
     add_bullets(doc, ("Gunakan PNG, JPG/JPEG, WebP, atau GIF.", "Gunakan file maksimal sekitar 2 MB."))
     add_heading(doc, "9.7 Report Tidak Menampilkan Transaksi", 2)
     add_bullets(doc, ("Periksa periode Dari dan Sampai.", "Order cancelled tidak dihitung.", "Pastikan login menggunakan role Manager atau Admin."))
-    add_heading(doc, "9.8 Mengakses Versi Render", 2)
+    add_heading(doc, "9.8 Mengakses Versi Netlify", 2)
     add_bullets(
         doc,
         (
-            "Buka alamat publik *.onrender.com yang diberikan setelah deploy; pengunjung tidak memerlukan verifikasi tambahan.",
-            "Service gratis dapat tidur setelah tidak aktif sehingga permintaan pertama berikutnya mungkin menampilkan loading sekitar satu menit.",
-            "Data dapat kembali ke awal setelah service aktif kembali atau deploy baru karena filesystem paket gratis bersifat sementara.",
-            "Kredensial publik mengikuti password rahasia yang diisi saat pembuatan Blueprint Render, bukan password yang disimpan di Git.",
+            "Buka alamat publik *.netlify.app yang diberikan setelah deploy; pengunjung tidak memerlukan verifikasi tambahan.",
+            "Website, API, dan database tersedia pada domain yang sama; data operasional disimpan di PostgreSQL persisten.",
+            "Jika project tidak dapat diakses dan limit Free habis, tunggu reset periode atau tingkatkan paket dari dashboard Netlify.",
+            "Kredensial publik mengikuti password environment variable yang disimpan di Netlify, bukan password yang disimpan di Git.",
         ),
     )
 
@@ -1106,6 +1115,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-06", "Menambahkan panduan akses Netlify, API satu domain, PostgreSQL persisten, credential environment, dan batas kredit paket Free."),
             ("2026-07-06", "Menambahkan panduan akses deployment Render, waktu bangun service gratis, credential deploy, dan batasan data SQLite pada filesystem sementara."),
             ("2026-07-05", "Menambahkan panduan RBAC Admin per modul, default hak akses, efek tab dashboard berbasis permission, dan pemecahan masalah akses ditolak."),
             ("2026-07-05", "Menambahkan panduan kategori menu custom khusus Manager, efek kategori aktif/nonaktif pada storefront, dan catatan akses Admin terhadap kategori."),
