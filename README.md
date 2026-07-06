@@ -45,6 +45,14 @@ Salin `.env.example` menjadi `.env`, lalu ganti nilai rahasia sebelum publikasi.
 
 Database default tersimpan di `data/franchise.db`.
 
+## Deploy ke Render
+
+Project menyediakan Blueprint `render.yaml` untuk satu Web Service Node.js gratis di region Singapura. Build menggunakan `npm ci && npm run build`, server dijalankan dengan `npm start`, dan health check memakai `/api/health`.
+
+Saat membuat Blueprint, isi password Admin, Manager, dan Cashier pada form rahasia Render. Jangan menyimpan password tersebut di repository. Domain publik dibuat otomatis dalam format `*.onrender.com`.
+
+> Catatan demo: filesystem paket gratis Render bersifat sementara. Database SQLite dan gambar yang disimpan sebagai Data URL dapat kembali ke kondisi awal setelah service sleep, restart, atau redeploy. Gunakan database/storage persisten sebelum dipakai untuk transaksi produksi.
+
 ## Dokumen analisis
 
 - FSD: `docs/FSD.md`

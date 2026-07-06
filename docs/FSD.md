@@ -152,6 +152,14 @@ Perubahan pengaturan langsung memengaruhi halaman toko, login, cashier, tracking
 - Permission **Admin - RBAC** wajib aktif agar Admin tidak terkunci dari pengaturan akses.
 - Permission RBAC untuk Cashier/Manager dikunci nonaktif; pengaturan RBAC hanya dapat dikelola Admin.
 
+### Hosting publik Render
+
+- Aplikasi dapat dipublikasikan sebagai satu Web Service Node.js melalui Blueprint `render.yaml`.
+- Render memberikan domain publik acak `*.onrender.com` tanpa halaman verifikasi pengunjung.
+- Konfigurasi memilih paket gratis dan region Singapura, menjalankan health check `/api/health`, serta melakukan deploy otomatis dari branch `main`.
+- Password Admin, Manager, dan Cashier diisi sebagai secret saat Blueprint dibuat dan tidak disimpan di repository.
+- Hosting gratis ini ditujukan untuk demo. Database SQLite dan gambar Data URL berada pada filesystem sementara sehingga data dapat kembali ke seed awal setelah service sleep, restart, atau redeploy.
+
 ## 5. Aturan dokumen
 
 Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus memperbarui:
@@ -167,6 +175,7 @@ Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus me
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-06 | Menambahkan Blueprint Render untuk hosting publik gratis, domain `onrender.com`, secret credential saat deploy, health check, auto-deploy, serta batasan penyimpanan SQLite sementara. |
 | 2026-07-05 | Menambahkan RBAC per modul untuk Admin, tabel permission role, tab RBAC, menu dashboard berbasis permission, dan validasi permission di backend. |
 | 2026-07-05 | Menambahkan modul kategori menu custom berbasis database, endpoint kategori publik/manager, tab Kategori khusus Manager, validasi produk terhadap kategori database, dan sinkronisasi kategori ke storefront. |
 | 2026-07-05 | Menambahkan modul Report operasional dan keuangan, pembayaran/promo checkout, ekspor CSV, transaksi biaya/modal, valuasi persediaan, dan pengurangan stok otomatis dari penjualan. |

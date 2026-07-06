@@ -23,7 +23,7 @@ OUTPUTS = {
 }
 
 PROJECT_NAME = "Franchise Ordering Platform"
-UPDATE_DATE = "2026-07-05"
+UPDATE_DATE = "2026-07-06"
 
 PRIMARY = "2E74B5"
 PRIMARY_DARK = "1F4D78"
@@ -501,6 +501,18 @@ def build_fsd() -> None:
         ),
     )
 
+    add_heading(doc, "4.10 Hosting Publik Render", 2)
+    add_bullets(
+        doc,
+        (
+            "Aplikasi dapat dipublikasikan sebagai satu Web Service Node.js melalui Blueprint render.yaml.",
+            "Render memberikan domain publik acak *.onrender.com tanpa halaman verifikasi pengunjung.",
+            "Konfigurasi memakai paket gratis, region Singapura, health check /api/health, dan auto-deploy branch main.",
+            "Password Admin, Manager, dan Cashier diisi sebagai secret saat Blueprint dibuat dan tidak disimpan di repository.",
+            "Hosting gratis ditujukan untuk demo; SQLite dan gambar Data URL berada pada filesystem sementara sehingga data dapat kembali ke seed awal setelah sleep, restart, atau redeploy.",
+        ),
+    )
+
     add_heading(doc, "5. Aturan Dokumen", 1)
     add_body(doc, "Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus memperbarui dokumen berikut:")
     add_bullets(doc, ("docs/FSD.md", "docs/TSD.md", "docs/USER_GUIDE.md", "docs/FSD.docx", "docs/TSD.docx", "docs/USER_GUIDE.docx"))
@@ -510,6 +522,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-06", "Menambahkan Blueprint Render untuk hosting publik gratis, domain onrender.com, secret credential saat deploy, health check, auto-deploy, dan batasan penyimpanan SQLite sementara."),
             ("2026-07-05", "Menambahkan RBAC per modul untuk Admin, tabel permission role, tab RBAC, menu dashboard berbasis permission, dan validasi permission di backend."),
             ("2026-07-05", "Menambahkan modul kategori menu custom berbasis database, endpoint kategori publik/manager, tab Kategori khusus Manager, dan sinkronisasi kategori ke storefront."),
             ("2026-07-05", "Menambahkan modul Report, pembayaran/promo checkout, transaksi biaya/modal, ekspor CSV, valuasi persediaan, dan pengurangan stok otomatis."),
@@ -747,6 +760,20 @@ def build_tsd() -> None:
         widths=(1.65, 4.85),
     )
 
+    add_heading(doc, "8.1 Deployment Render", 2)
+    add_bullets(
+        doc,
+        (
+            "Infrastructure as Code menggunakan render.yaml di root repository.",
+            "Service berupa Node.js Web Service paket free, region singapore, dan branch main.",
+            "Build command npm ci && npm run build; start command npm start.",
+            "Health check menggunakan GET /api/health dan PORT disediakan otomatis oleh Render.",
+            "APP_JWT_SECRET dibuat otomatis; password Admin, Manager, dan Cashier memakai sync: false agar diminta saat Blueprint dibuat dan tidak masuk Git.",
+            "Express melayani frontend Vite dari dist dan memberi fallback index.html untuk route non-API.",
+            "Filesystem paket gratis bersifat ephemeral; SQLite dan gambar Data URL tidak dijamin bertahan setelah sleep, restart, atau redeploy.",
+        ),
+    )
+
     add_heading(doc, "9. Aturan Update Dokumen", 1)
     add_info_box(
         doc,
@@ -760,6 +787,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-06", "Menambahkan render.yaml untuk Web Service gratis region Singapura, build/start command, health check, secret env, auto-deploy branch main, dan dokumentasi filesystem ephemeral."),
             ("2026-07-05", "Menambahkan role_permissions, default matrix RBAC, endpoint /api/permissions/me dan /api/admin/rbac, guard permission per modul, serta UI tab RBAC Admin."),
             ("2026-07-05", "Menambahkan menu_categories, seed/migrasi kategori, endpoint kategori publik/manager, validasi produk ke kategori database, tab Kategori khusus Manager, dan dropdown produk berbasis API."),
             ("2026-07-05", "Menambahkan financial_entries, payment/diskon order, linkage inventory-produk, pengurangan stok atomik, agregasi Report, endpoint, UI, dan ekspor CSV."),
@@ -1054,6 +1082,16 @@ def build_user_guide() -> None:
     add_bullets(doc, ("Gunakan PNG, JPG/JPEG, WebP, atau GIF.", "Gunakan file maksimal sekitar 2 MB."))
     add_heading(doc, "9.7 Report Tidak Menampilkan Transaksi", 2)
     add_bullets(doc, ("Periksa periode Dari dan Sampai.", "Order cancelled tidak dihitung.", "Pastikan login menggunakan role Manager atau Admin."))
+    add_heading(doc, "9.8 Mengakses Versi Render", 2)
+    add_bullets(
+        doc,
+        (
+            "Buka alamat publik *.onrender.com yang diberikan setelah deploy; pengunjung tidak memerlukan verifikasi tambahan.",
+            "Service gratis dapat tidur setelah tidak aktif sehingga permintaan pertama berikutnya mungkin menampilkan loading sekitar satu menit.",
+            "Data dapat kembali ke awal setelah service aktif kembali atau deploy baru karena filesystem paket gratis bersifat sementara.",
+            "Kredensial publik mengikuti password rahasia yang diisi saat pembuatan Blueprint Render, bukan password yang disimpan di Git.",
+        ),
+    )
 
     add_heading(doc, "10. Aturan Pembaruan Dokumen", 1)
     add_info_box(
@@ -1068,6 +1106,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-06", "Menambahkan panduan akses deployment Render, waktu bangun service gratis, credential deploy, dan batasan data SQLite pada filesystem sementara."),
             ("2026-07-05", "Menambahkan panduan RBAC Admin per modul, default hak akses, efek tab dashboard berbasis permission, dan pemecahan masalah akses ditolak."),
             ("2026-07-05", "Menambahkan panduan kategori menu custom khusus Manager, efek kategori aktif/nonaktif pada storefront, dan catatan akses Admin terhadap kategori."),
             ("2026-07-05", "Menambahkan panduan Report, pembayaran/promo, transaksi biaya/modal, ekspor CSV, harga modal, dan stok otomatis."),

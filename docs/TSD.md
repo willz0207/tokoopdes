@@ -268,6 +268,19 @@ npm run build
 npm start
 ```
 
+### 8.1 Deployment Render
+
+- Infrastructure as Code: `render.yaml` di root repository.
+- Service: Node.js Web Service, paket `free`, region `singapore`, branch `main`.
+- Build command: `npm ci && npm run build`.
+- Start command: `npm start`.
+- Health check: `GET /api/health`.
+- `PORT` disediakan otomatis oleh Render dan sudah dibaca oleh `server/index.ts`.
+- `APP_JWT_SECRET` dibuat otomatis oleh Render.
+- `APP_ADMIN_PASSWORD`, `APP_MANAGER_PASSWORD`, dan `APP_CASHIER_PASSWORD` memakai `sync: false`, sehingga nilainya diminta pada pembuatan Blueprint dan tidak masuk Git.
+- Frontend hasil Vite dilayani Express dari folder `dist`; route non-API menggunakan fallback `index.html`.
+- SQLite memakai filesystem service yang bersifat ephemeral pada paket gratis. Data runtime dan gambar Data URL tidak dijamin bertahan setelah sleep, restart, atau redeploy; deployment produksi harus memakai penyimpanan persisten.
+
 ## 9. Aturan update dokumen
 
 Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan brand, upload, atau alur checkout wajib memperbarui:
@@ -283,6 +296,7 @@ Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan br
 
 | Tanggal | Perubahan teknis |
 |---|---|
+| 2026-07-06 | Menambahkan `render.yaml` untuk Web Service gratis region Singapura, build/start command, health check, secret env, auto-deploy branch `main`, dan dokumentasi keterbatasan filesystem ephemeral. |
 | 2026-07-05 | Menambahkan tabel `role_permissions`, default matrix RBAC, endpoint `/api/permissions/me` dan `/api/admin/rbac`, guard permission per modul, serta UI tab RBAC Admin. |
 | 2026-07-05 | Menambahkan tabel `menu_categories`, seed/migrasi kategori dari produk lama, endpoint kategori publik/manager, validasi produk terhadap kategori database, tab Kategori khusus Manager, dan dropdown produk berbasis kategori API. |
 | 2026-07-05 | Menambahkan `financial_entries`, kolom pembayaran/diskon order, valuasi dan linkage inventory-produk, pengurangan stok atomik saat checkout, agregasi report, endpoint Report, UI Report, dan ekspor CSV. |

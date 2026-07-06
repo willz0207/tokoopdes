@@ -253,6 +253,13 @@ Setiap role memiliki menu profil di bagian kanan atas. Menu ini digunakan untuk:
 - Gunakan PNG, JPG/JPEG, WebP, atau GIF.
 - Gunakan file maksimal sekitar 2 MB.
 
+### Mengakses versi Render
+
+- Buka alamat publik `*.onrender.com` yang diberikan setelah deploy selesai; pengunjung tidak memerlukan verifikasi tambahan.
+- Service gratis dapat tidur setelah tidak aktif. Permintaan pertama berikutnya mungkin menampilkan halaman loading sekitar satu menit.
+- Jika data kembali ke awal setelah service aktif kembali atau setelah deploy baru, hal tersebut merupakan batasan filesystem sementara pada paket gratis. Gunakan deployment dengan database/storage persisten untuk data operasional nyata.
+- Kredensial publik mengikuti password rahasia yang diisi saat pembuatan Blueprint Render, bukan password yang tersimpan di Git.
+
 ## 10. Aturan pembaruan dokumen
 
 Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib memperbarui:
@@ -265,6 +272,7 @@ Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib 
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-06 | Menambahkan panduan akses deployment Render, waktu bangun service gratis, credential deploy, dan batasan data SQLite pada filesystem sementara. |
 | 2026-07-05 | Menambahkan panduan RBAC Admin per modul, default hak akses, efek tab dashboard berbasis permission, dan pemecahan masalah akses ditolak. |
 | 2026-07-05 | Menambahkan panduan kategori menu custom khusus Manager, efek kategori aktif/nonaktif pada storefront, serta catatan akses Admin terhadap kategori. |
 | 2026-07-05 | Menambahkan panduan Report, metode pembayaran/promo, transaksi biaya/modal, ekspor CSV, harga modal inventory, dan pengurangan stok otomatis dari pesanan. |
