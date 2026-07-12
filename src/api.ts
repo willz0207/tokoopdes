@@ -1,4 +1,4 @@
-import type { CurrentPermissions, DashboardStats, FinancialEntry, FinancialEntryType, FranchiseSettings, InventoryItem, InventorySnapshot, MenuCategory, Order, OrderStatus, PaymentMethod, Product, ProductAddonInput, Promotion, ReportData, RolePermissionMatrix, StockMovement, StockMovementType, User, UserRole } from './types'
+import type { CurrentPermissions, DashboardStats, FinancialEntry, FinancialEntryType, FranchiseSettings, InventoryItem, InventorySnapshot, MenuCategory, Order, OrderStatus, Outlet, PaymentMethod, PaymentSession, Product, ProductAddonInput, ProductOutletAssignmentInput, Promotion, ReportData, RolePermissionMatrix, StockMovement, StockMovementType, User, UserRole } from './types'
 
 async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(url, {
@@ -9,7 +9,10 @@ async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T>
     },
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.message || 'Server tidak dapat memproses permintaan.')
+  if (!response.ok) {
+    console.error('API Request failed:', url, response.status, data)
+    throw new Error(data.message || `HTTP ${response.status}: Gagal memuat ${url}`)
+  }
   return data as T
 }
 
@@ -21,12 +24,24 @@ const userHeaders = () => ({
   Authorization: `Bearer ${localStorage.getItem('franchise-user-token') || ''}`,
 })
 
+export const selectedOutletId = () => {
+  const value = Number(localStorage.getItem('franchise-outlet-id'))
+  return Number.isInteger(value) && value > 0 ? value : undefined
+}
+
+const outletHeaders = () => {
+  const outletId = selectedOutletId()
+  return outletId ? { ...userHeaders(), 'X-Outlet-Id': String(outletId) } : userHeaders()
+}
+
 export const storefrontApi = {
+  outlets: () => apiRequest<Outlet[]>('/api/outlets'),
   settings: () => apiRequest<FranchiseSettings>('/api/settings'),
-  categories: () => apiRequest<MenuCategory[]>('/api/categories'),
-  products: () => apiRequest<Product[]>('/api/products'),
+  categories: (outletId?: number) => apiRequest<MenuCategory[]>(`/api/categories${outletId ? `?outletId=${outletId}` : ''}`),
+  products: (outletId?: number) => apiRequest<Product[]>(`/api/products${outletId ? `?outletId=${outletId}` : ''}`),
   promotions: () => apiRequest<Promotion[]>('/api/promotions'),
   createOrder: (payload: {
+    outletId: number
     customerName: string
     phone: string
     address?: string
@@ -36,6 +51,8 @@ export const storefrontApi = {
     promoCode?: string
     items: Array<{ productId: number; quantity: number; addonIds?: number[] }>
   }) => apiRequest<Order>('/api/orders', { method: 'POST', headers: userHeaders(), body: JSON.stringify(payload) }),
+  paymentStatus: (orderId: string) => apiRequest<PaymentSession>(`/api/payments/${encodeURIComponent(orderId)}/status`, { headers: userHeaders() }),
+  simulatePayment: (orderId: string, result: 'paid' | 'failed') => apiRequest<PaymentSession>(`/api/payments/${encodeURIComponent(orderId)}/simulate`, { method: 'POST', headers: userHeaders(), body: JSON.stringify({ result }) }),
 }
 
 export const authApi = {
@@ -76,15 +93,22 @@ export const adminApi = {
 }
 
 export const cashierApi = {
-  stats: () => apiRequest<DashboardStats>('/api/cashier/stats', { headers: userHeaders() }),
-  orders: () => apiRequest<Order[]>('/api/cashier/orders', { headers: userHeaders() }),
+  outlets: () => apiRequest<Outlet[]>('/api/staff/outlets', { headers: userHeaders() }),
+  stats: () => apiRequest<DashboardStats>('/api/cashier/stats', { headers: outletHeaders() }),
+  orders: () => apiRequest<Order[]>('/api/cashier/orders', { headers: outletHeaders() }),
   updateOrderStatus: (id: string, status: OrderStatus) => apiRequest<Order>(`/api/cashier/orders/${id}/status`, {
-    method: 'PATCH', headers: userHeaders(), body: JSON.stringify({ status }),
+    method: 'PATCH', headers: outletHeaders(), body: JSON.stringify({ status }),
   }),
 }
 
 export const managerApi = {
   myPermissions: () => apiRequest<CurrentPermissions>('/api/permissions/me', { headers: userHeaders() }),
+  availableOutlets: () => apiRequest<Outlet[]>('/api/staff/outlets', { headers: userHeaders() }),
+  outlets: () => apiRequest<Outlet[]>('/api/manager/outlets', { headers: outletHeaders() }),
+  saveOutlet: (outlet: Omit<Outlet, 'id'> & { id?: number }) => apiRequest<Outlet>(outlet.id ? `/api/manager/outlets/${outlet.id}` : '/api/manager/outlets', {
+    method: outlet.id ? 'PUT' : 'POST', headers: outletHeaders(), body: JSON.stringify(outlet),
+  }),
+  deleteOutlet: (id: number) => apiRequest<{ deleted: boolean; archived: boolean }>(`/api/manager/outlets/${id}`, { method: 'DELETE', headers: outletHeaders() }),
   rbac: () => apiRequest<RolePermissionMatrix>('/api/admin/rbac', { headers: userHeaders() }),
   updateRbac: (permissions: RolePermissionMatrix['permissions']) => apiRequest<RolePermissionMatrix>('/api/admin/rbac', {
     method: 'PUT', headers: userHeaders(), body: JSON.stringify({ permissions }),
@@ -93,12 +117,12 @@ export const managerApi = {
   updateSettings: (settings: FranchiseSettings) => apiRequest<FranchiseSettings>('/api/manager/settings', {
     method: 'PUT', headers: userHeaders(), body: JSON.stringify(settings),
   }),
-  cashiers: () => apiRequest<User[]>('/api/manager/cashiers', { headers: userHeaders() }),
-  createCashier: (payload: { name: string; email: string; password: string }) => apiRequest<User>('/api/manager/cashiers', {
-    method: 'POST', headers: userHeaders(), body: JSON.stringify(payload),
+  cashiers: () => apiRequest<User[]>('/api/manager/cashiers', { headers: outletHeaders() }),
+  createCashier: (payload: { name: string; email: string; password: string; outletId: number }) => apiRequest<User>('/api/manager/cashiers', {
+    method: 'POST', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
-  updateCashier: (id: number, payload: { name: string; email: string; password?: string; active: boolean }) => apiRequest<User>(`/api/manager/cashiers/${id}`, {
-    method: 'PUT', headers: userHeaders(), body: JSON.stringify(payload),
+  updateCashier: (id: number, payload: { name: string; email: string; password?: string; active: boolean; outletId: number }) => apiRequest<User>(`/api/manager/cashiers/${id}`, {
+    method: 'PUT', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
   deleteCashier: (id: number) => apiRequest<{ deleted: boolean }>(`/api/manager/cashiers/${id}`, {
     method: 'DELETE', headers: userHeaders(),
@@ -113,12 +137,15 @@ export const managerApi = {
   deleteCategory: (id: number) => apiRequest<{ deleted: boolean; archived: boolean }>(`/api/manager/categories/${id}`, {
     method: 'DELETE', headers: userHeaders(),
   }),
-  products: () => apiRequest<Product[]>('/api/manager/products', { headers: userHeaders() }),
+  products: () => apiRequest<Product[]>('/api/manager/products', { headers: outletHeaders() }),
   saveProduct: (product: Omit<Product, 'id' | 'addons'> & { id?: number; addons?: ProductAddonInput[] }) => apiRequest<Product>(product.id ? `/api/manager/products/${product.id}` : '/api/manager/products', {
-    method: product.id ? 'PUT' : 'POST', headers: userHeaders(), body: JSON.stringify(product),
+    method: product.id ? 'PUT' : 'POST', headers: outletHeaders(), body: JSON.stringify(product),
   }),
   setProductActive: (id: number, active: boolean) => apiRequest<Product>(`/api/manager/products/${id}/active`, {
     method: 'PATCH', headers: userHeaders(), body: JSON.stringify({ active }),
+  }),
+  setProductOutletAssignment: (id: number, assignment: ProductOutletAssignmentInput) => apiRequest<Product>(`/api/manager/products/${id}/outlet-assignment`, {
+    method: 'PUT', headers: outletHeaders(), body: JSON.stringify(assignment),
   }),
   deleteProduct: (id: number) => apiRequest<{ deleted: boolean; archived: boolean }>(`/api/manager/products/${id}`, {
     method: 'DELETE', headers: userHeaders(),
@@ -130,24 +157,24 @@ export const managerApi = {
   deletePromotion: (id: number) => apiRequest<{ deleted: boolean }>(`/api/manager/promotions/${id}`, {
     method: 'DELETE', headers: userHeaders(),
   }),
-  inventory: () => apiRequest<InventorySnapshot>('/api/manager/inventory', { headers: userHeaders() }),
+  inventory: () => apiRequest<InventorySnapshot>('/api/manager/inventory', { headers: outletHeaders() }),
   createInventoryItem: (payload: { name: string; sku: string; unit: string; initialStock: number; minimumStock: number; unitCost: number; linkedProductId?: number; usagePerSale: number; active: boolean }) => apiRequest<InventoryItem>('/api/manager/inventory/items', {
-    method: 'POST', headers: userHeaders(), body: JSON.stringify(payload),
+    method: 'POST', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
   updateInventoryItem: (id: number, payload: { name: string; sku: string; unit: string; minimumStock: number; unitCost: number; linkedProductId?: number; usagePerSale: number; active: boolean }) => apiRequest<InventoryItem>(`/api/manager/inventory/items/${id}`, {
-    method: 'PUT', headers: userHeaders(), body: JSON.stringify(payload),
+    method: 'PUT', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
   deleteInventoryItem: (id: number) => apiRequest<{ deleted: boolean; archived: boolean }>(`/api/manager/inventory/items/${id}`, {
-    method: 'DELETE', headers: userHeaders(),
+    method: 'DELETE', headers: outletHeaders(),
   }),
   createStockMovement: (payload: { itemId: number; type: StockMovementType; quantity: number; note?: string }) => apiRequest<StockMovement>('/api/manager/inventory/movements', {
-    method: 'POST', headers: userHeaders(), body: JSON.stringify(payload),
+    method: 'POST', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
-  reports: (from: string, to: string) => apiRequest<ReportData>(`/api/manager/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { headers: userHeaders() }),
+  reports: (from: string, to: string) => apiRequest<ReportData>(`/api/manager/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { headers: outletHeaders() }),
   createFinancialEntry: (payload: { type: FinancialEntryType; category: string; amount: number; paymentMethod: PaymentMethod; note?: string; entryDate: string }) => apiRequest<FinancialEntry>('/api/manager/financial-entries', {
-    method: 'POST', headers: userHeaders(), body: JSON.stringify(payload),
+    method: 'POST', headers: outletHeaders(), body: JSON.stringify(payload),
   }),
   deleteFinancialEntry: (id: number) => apiRequest<{ deleted: boolean }>(`/api/manager/financial-entries/${id}`, {
-    method: 'DELETE', headers: userHeaders(),
+    method: 'DELETE', headers: outletHeaders(),
   }),
 }

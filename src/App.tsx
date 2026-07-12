@@ -17,11 +17,12 @@ import {
   UserRound,
   X,
   Zap,
+  Building2,
 } from 'lucide-react'
 import { storefrontApi } from './api'
 import { defaultCategories, formatRupiah, products as defaultProducts } from './data'
 import { useFranchiseSettings } from './franchise'
-import type { CartItem, FranchiseSettings, MenuCategory, PaymentMethod, Product, Promotion, User } from './types'
+import type { CartItem, FranchiseSettings, MenuCategory, Outlet, PaymentMethod, Product, Promotion, User } from './types'
 import ProfileMenu from './ProfileMenu'
 
 type DrawerView = 'cart' | 'checkout' | 'success'
@@ -34,6 +35,11 @@ function App() {
   const [catalog, setCatalog] = useState<Product[]>(defaultProducts)
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>(defaultCategories)
   const [activePromotions, setActivePromotions] = useState<Promotion[]>([])
+  const [outlets, setOutlets] = useState<Outlet[]>([])
+  const [selectedOutletId, setSelectedOutletId] = useState<number | undefined>(() => {
+    const value = Number(localStorage.getItem('franchise-outlet-id'))
+    return Number.isInteger(value) && value > 0 ? value : undefined
+  })
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       return JSON.parse(localStorage.getItem('franchise-user') || 'null') as User | null
@@ -61,12 +67,43 @@ function App() {
   }, [cart])
 
   useEffect(() => {
-    storefrontApi.categories().then(setMenuCategories).catch(() => undefined)
-    storefrontApi.products().then(setCatalog).catch(() => {
-      setToast('Server belum aktif, menampilkan katalog cadangan')
-    })
+    storefrontApi.outlets().then((nextOutlets) => {
+      setOutlets(nextOutlets)
+      const selected = nextOutlets.find((outlet) => outlet.id === selectedOutletId) || nextOutlets.find((outlet) => outlet.isDefault) || nextOutlets[0]
+      if (selected) {
+        setSelectedOutletId(selected.id)
+        localStorage.setItem('franchise-outlet-id', String(selected.id))
+      }
+    }).catch(() => undefined)
     storefrontApi.promotions().then(setActivePromotions).catch(() => undefined)
   }, [])
+
+  useEffect(() => {
+    if (!selectedOutletId) return
+    let cancelled = false
+    Promise.all([
+      storefrontApi.categories(selectedOutletId),
+      storefrontApi.products(selectedOutletId),
+    ]).then(([nextCategories, nextProducts]) => {
+      if (cancelled) return
+      setMenuCategories(nextCategories)
+      setCatalog(nextProducts)
+    }).catch(() => {
+      if (cancelled) return
+      setCatalog([])
+      setMenuCategories([])
+      setToast('Katalog outlet belum dapat dimuat. Pastikan server aktif.')
+    })
+    return () => { cancelled = true }
+  }, [selectedOutletId])
+
+  const changeOutlet = (outletId: number) => {
+    if (outletId === selectedOutletId) return
+    setSelectedOutletId(outletId)
+    localStorage.setItem('franchise-outlet-id', String(outletId))
+    setCart([])
+    setToast('Outlet diganti. Keranjang dikosongkan agar stok tetap akurat.')
+  }
 
   useEffect(() => {
     if (activeCategory !== 'Semua' && !menuCategories.some((category) => category.label === activeCategory)) {
@@ -179,9 +216,7 @@ function App() {
           </nav>
 
           <div className="header-actions">
-            <button className="location-button" type="button" onClick={() => document.querySelector('#lokasi')?.scrollIntoView({ behavior: 'smooth' })}>
-              <MapPin size={17} /> {settings.locationLabel}
-            </button>
+            <label className="store-outlet-select"><Building2 size={17} /><select aria-label="Pilih outlet" value={selectedOutletId || ''} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.map((outlet) => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</select></label>
             {currentUser ? (
               <ProfileMenu user={currentUser} onLogout={logout} onUserUpdate={setCurrentUser} />
             ) : (
@@ -369,6 +404,7 @@ function App() {
           customer={currentUser?.role === 'customer' ? currentUser : null}
           settings={settings}
           whatsappNumber={whatsappNumber}
+          outlet={outlets.find((outlet) => outlet.id === selectedOutletId) || null}
         />
       )}
 
@@ -436,9 +472,10 @@ interface CartDrawerProps {
   customer: User | null
   settings: FranchiseSettings
   whatsappNumber: string
+  outlet: Outlet | null
 }
 
-function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, catalog, promotions, customer, settings, whatsappNumber }: CartDrawerProps) {
+function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, catalog, promotions, customer, settings, whatsappNumber, outlet }: CartDrawerProps) {
   const [deliveryMethod, setDeliveryMethod] = useState<'delivery' | 'pickup'>('delivery')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [promoCode, setPromoCode] = useState('')
@@ -464,6 +501,10 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
       setSubmitError('Silakan login sebagai pelanggan untuk membuat pesanan.')
       return
     }
+    if (!outlet) {
+      setSubmitError('Pilih outlet aktif sebelum membuat pesanan.')
+      return
+    }
     setSubmitError('')
     setSubmitting(true)
     const form = new FormData(event.currentTarget)
@@ -473,6 +514,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
     const note = String(form.get('note') ?? '')
     try {
       const order = await storefrontApi.createOrder({
+        outletId: outlet.id,
         customerName,
         phone: customerPhone,
         address,
@@ -484,6 +526,11 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
       })
       const confirmedOrderNumber = order.id
       setOrderNumber(confirmedOrderNumber)
+    if (paymentMethod !== 'cash' && order.paymentRedirectUrl) {
+      clearCart()
+      window.location.href = order.paymentRedirectUrl
+      return
+    }
     const itemLines = detailedCart
       .map((item) => `• ${item.quantity}x ${item.product.name}${item.selectedAddons.length ? ` (${item.selectedAddons.map((addon) => addon.name).join(', ')})` : ''} — ${formatRupiah(item.unitPrice * item.quantity)}`)
       .join('\n')
@@ -500,6 +547,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
       `Nama: ${customerName}`,
       `No. WhatsApp: ${customerPhone}`,
       `Metode: ${deliveryMethod === 'delivery' ? 'Diantar' : 'Ambil sendiri'}`,
+      `Outlet: ${outlet.name}`,
       `Pembayaran: ${paymentMethod === 'cash' ? 'Tunai' : paymentMethod === 'bank_transfer' ? 'Transfer bank' : paymentMethod === 'ewallet' ? 'E-wallet' : 'QRIS'}`,
       address ? `Alamat: ${address}` : '',
       note ? `Catatan: ${note}` : '',
@@ -597,7 +645,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
                     {deliveryMethod === 'delivery' && <label>Alamat pengantaran<textarea required name="address" placeholder="Nama jalan, nomor rumah, patokan..." rows={3} /></label>}
                     <label>Catatan <span>(opsional)</span><input name="note" placeholder="Contoh: saus dipisah" /></label>
                   </div>
-                  <div className="payment-info"><span>💳</span><div><b>Bayar saat pesanan diterima</b><small>Tunai atau QRIS</small></div><Check size={17} /></div>
+                  <div className="payment-info"><span>💳</span><div><b>{paymentMethod === 'cash' ? 'Bayar saat pesanan diterima' : 'Pembayaran online aman'}</b><small>{paymentMethod === 'cash' ? 'Pembayaran tunai di outlet atau kepada kurir' : 'Setelah pesanan dibuat, kamu akan diarahkan ke halaman pembayaran.'}</small></div><Check size={17} /></div>
                 </div>
                 <div className="drawer-summary checkout-summary">
                   <div><span>Subtotal</span><span>{formatRupiah(subtotal)}</span></div>
@@ -606,7 +654,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
                   <div className="grand-total"><b>Total</b><strong>{formatRupiah(total)}</strong></div>
                   {!customer && <div className="checkout-login-required"><UserRound size={18} /><span><b>Login pelanggan diperlukan</b><small>Keranjangmu tetap tersimpan setelah login.</small></span></div>}
                   {submitError && <p className="checkout-error">{submitError}</p>}
-                  {customer ? <button className="checkout-button" type="submit" disabled={submitting}>{submitting ? 'Menyimpan pesanan...' : whatsappNumber ? 'Pesan & buka WhatsApp' : 'Buat pesanan'} <ArrowRight size={18} /></button> : <a className="checkout-button" href="/login">Masuk sebagai pelanggan <ArrowRight size={18} /></a>}
+                  {customer ? <button className="checkout-button" type="submit" disabled={submitting || !outlet}>{submitting ? 'Menyiapkan pesanan...' : paymentMethod === 'cash' ? whatsappNumber ? 'Pesan & buka WhatsApp' : 'Buat pesanan' : 'Lanjut ke pembayaran'} <ArrowRight size={18} /></button> : <a className="checkout-button" href="/login">Masuk sebagai pelanggan <ArrowRight size={18} /></a>}
                 </div>
               </form>
             )}

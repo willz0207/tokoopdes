@@ -12,6 +12,7 @@ export interface Product {
   name: string
   description: string
   price: number
+  basePrice?: number
   originalPrice?: number
   category: string
   emoji: string
@@ -21,6 +22,23 @@ export interface Product {
   spicy?: boolean
   active?: boolean
   addons: ProductAddon[]
+  outletAssignment?: ProductOutletAssignment
+}
+
+export interface ProductOutletAssignment {
+  outletId: number
+  assigned: boolean
+  active: boolean
+  available: boolean
+  priceOverride?: number
+  effectivePrice: number
+}
+
+export interface ProductOutletAssignmentInput {
+  assigned: boolean
+  active: boolean
+  available: boolean
+  priceOverride?: number
 }
 
 export interface ProductAddon {
@@ -45,16 +63,40 @@ export interface CartItem {
 
 export type OrderStatus = 'new' | 'preparing' | 'ready' | 'delivering' | 'completed' | 'cancelled'
 export type PaymentMethod = 'cash' | 'qris' | 'bank_transfer' | 'ewallet'
+export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded'
+
+export interface Outlet {
+  id: number
+  code: string
+  name: string
+  address: string
+  phone: string
+  active: boolean
+  isDefault: boolean
+}
+
+export interface PaymentSession {
+  orderId: string
+  provider: 'cash' | 'midtrans' | 'simulator'
+  status: PaymentStatus
+  redirectUrl?: string
+  token?: string
+}
 
 export interface Order {
   id: string
   customerId?: number
+  outletId: number
+  outletName: string
   customerName: string
   phone: string
   address?: string
   note?: string
   deliveryMethod: 'delivery' | 'pickup'
   paymentMethod: PaymentMethod
+  paymentStatus: PaymentStatus
+  paymentProvider?: string
+  paymentRedirectUrl?: string
   status: OrderStatus
   subtotal: number
   discountAmount: number
@@ -86,6 +128,8 @@ export interface User {
   email: string
   role: UserRole
   active: boolean
+  outletId?: number
+  outletName?: string
 }
 
 export type PermissionRole = Extract<UserRole, 'cashier' | 'manager' | 'admin'>
@@ -97,6 +141,7 @@ export type PermissionModule =
   | 'cashiers'
   | 'inventory'
   | 'reports'
+  | 'outlets'
   | 'settings'
   | 'rbac'
 
@@ -165,6 +210,7 @@ export type StockMovementType = 'in' | 'out' | 'adjustment_add' | 'adjustment_su
 
 export interface InventoryItem {
   id: number
+  outletId: number
   name: string
   sku: string
   unit: string
@@ -236,7 +282,7 @@ export interface ReportData {
     customers: Array<{ customerId: number; name: string; email: string; orderCount: number; totalSpent: number; lastOrder: string }>
   }
   financial: {
-    profitLoss: { revenue: number; expenses: number; netProfit: number }
+    profitLoss: { revenue: number; cogs: number; grossProfit: number; expenses: number; netProfit: number }
     cashFlow: { salesInflow: number; capitalIn: number; totalInflow: number; expensesOutflow: number; capitalOut: number; totalOutflow: number; netCashFlow: number }
     balanceSheet: { cashBalance: number; inventoryValue: number; totalAssets: number; liabilities: number; equity: number }
     equityChanges: { capitalIn: number; capitalOut: number; retainedEarnings: number; netChange: number }

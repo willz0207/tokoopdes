@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ChefHat, Clock3, RefreshCw, Search, ShoppingBag, Store, Truck, X } from 'lucide-react'
+import { Building2, CheckCircle2, ChefHat, Clock3, RefreshCw, Search, ShoppingBag, Store, Truck, X } from 'lucide-react'
 import { cashierApi } from './api'
 import { formatRupiah } from './data'
 import { useFranchiseSettings } from './franchise'
-import type { DashboardStats, Order, OrderStatus, User } from './types'
+import { homePathForRole } from './roleRoutes'
+import type { DashboardStats, Order, OrderStatus, Outlet, User } from './types'
 import ProfileMenu from './ProfileMenu'
 import './cashier.css'
 
@@ -23,6 +24,8 @@ function CashierApp() {
   })
   const [stats, setStats] = useState<DashboardStats>({ totalOrders: 0, revenue: 0, activeOrders: 0, activeProducts: 0 })
   const [orders, setOrders] = useState<Order[]>([])
+  const [outlets, setOutlets] = useState<Outlet[]>([])
+  const [selectedOutletId, setSelectedOutletId] = useState<number | undefined>(() => Number(localStorage.getItem('franchise-outlet-id')) || undefined)
   const [filter, setFilter] = useState<'active' | 'all' | OrderStatus>('active')
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -39,6 +42,13 @@ function CashierApp() {
     setLoading(true)
     setError('')
     try {
+      const nextOutlets = await cashierApi.outlets()
+      const requestedId = user?.role === 'cashier' ? user.outletId : Number(localStorage.getItem('franchise-outlet-id'))
+      const selected = nextOutlets.find((outlet) => outlet.id === requestedId) || nextOutlets.find((outlet) => outlet.isDefault) || nextOutlets[0]
+      if (!selected) throw new Error('Akun belum memiliki outlet aktif.')
+      localStorage.setItem('franchise-outlet-id', String(selected.id))
+      setSelectedOutletId(selected.id)
+      setOutlets(nextOutlets)
       const [nextStats, nextOrders] = await Promise.all([cashierApi.stats(), cashierApi.orders()])
       setStats(nextStats)
       setOrders(nextOrders)
@@ -49,7 +59,13 @@ function CashierApp() {
     } finally {
       setLoading(false)
     }
-  }, [logout])
+  }, [logout, user?.outletId, user?.role])
+
+  const changeOutlet = (outletId: number) => {
+    localStorage.setItem('franchise-outlet-id', String(outletId))
+    setSelectedOutletId(outletId)
+    void loadData()
+  }
 
   useEffect(() => {
     if (!user || !['cashier', 'manager', 'admin'].includes(user.role) || !localStorage.getItem('franchise-user-token')) {
@@ -85,7 +101,7 @@ function CashierApp() {
     <div className="cashier-shell">
       <header className="cashier-header">
         <a className="cashier-brand" href="/cashier"><span>{settings.shortName}</span><div><b>Cashier Station</b><small>{settings.businessName}</small></div></a>
-        <div className="cashier-user">{user && ['manager', 'admin'].includes(user.role) && <a className="manager-return" href="/manager">Dashboard {user.role}</a>}{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div>
+        <div className="cashier-user">{outlets.length > 0 && <label className="cashier-outlet-switch"><Building2 size={15} /><select aria-label="Outlet aktif" value={selectedOutletId || ''} disabled={user?.role === 'cashier'} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label>}{user && ['manager', 'admin'].includes(user.role) && <a className="manager-return" href={homePathForRole(user.role)}>Dashboard {user.role}</a>}{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div>
       </header>
 
       <main className="cashier-main">

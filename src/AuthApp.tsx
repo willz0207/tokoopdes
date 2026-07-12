@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ArrowLeft, ArrowRight, BadgeDollarSign, BriefcaseBusiness, LockKeyhole, Mail, ShieldCheck, UserRound } from 'lucide-react'
 import { authApi } from './api'
 import { useFranchiseSettings } from './franchise'
+import { homePathForRole } from './roleRoutes'
 import type { UserRole } from './types'
 import './auth.css'
 
@@ -17,7 +18,7 @@ function AuthApp() {
     if (!rawUser || !localStorage.getItem('franchise-user-token')) return
     try {
       const user = JSON.parse(rawUser) as { role: UserRole }
-      window.location.replace(['manager', 'admin'].includes(user.role) ? '/manager' : user.role === 'cashier' ? '/cashier' : '/')
+      window.location.replace(homePathForRole(user.role))
     } catch {
       localStorage.removeItem('franchise-user')
       localStorage.removeItem('franchise-user-token')
@@ -49,7 +50,7 @@ function AuthApp() {
         })
       localStorage.setItem('franchise-user-token', result.token)
       localStorage.setItem('franchise-user', JSON.stringify(result.user))
-      window.location.href = ['manager', 'admin'].includes(result.user.role) ? '/manager' : result.user.role === 'cashier' ? '/cashier' : '/'
+      window.location.href = homePathForRole(result.user.role)
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Login gagal.')
     } finally {

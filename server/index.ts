@@ -5,14 +5,17 @@ import jwt from 'jsonwebtoken'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import * as storage from './postgres-db.js'
+import { createPaymentSession, paymentMode, paymentStatusFromMidtrans, verifyMidtransNotification, type MidtransNotification } from './payments.js'
 import type {
   FranchiseSettingsRecord,
   MenuCategoryRecord,
   NewOrderInput,
+  OutletRecord,
   PermissionModule,
   ProductRecord,
   ProductAddonInput,
   ProductInput,
+  ProductOutletAssignmentInput,
   PromotionRecord,
   StockMovementType,
   FinancialEntryType,
@@ -30,6 +33,7 @@ const {
   createProduct,
   createStockMovement,
   createFinancialEntry,
+  createOutlet,
   createUser,
   deleteCashier,
   deleteInventoryItem,
@@ -37,6 +41,7 @@ const {
   deleteProduct,
   deletePromotion,
   deleteFinancialEntry,
+  deleteOutlet,
   getFranchiseSettings,
   getCustomerOrders,
   getDashboardStats,
@@ -44,6 +49,12 @@ const {
   getInventorySnapshot,
   getMenuCategories,
   getOrders,
+  getOrderById,
+  getOutlets,
+  getOutletById,
+  getDefaultOutlet,
+  getOrderPaymentTarget,
+  getPaymentSession,
   getProducts,
   getPromotions,
   getReportData,
@@ -54,10 +65,14 @@ const {
   menuCategoryExists,
   setMenuCategoryActive,
   setProductActive,
+  setProductOutletAssignment,
+  savePaymentSession,
   updateCashier,
   updateInventoryItem,
   updateMenuCategory,
   updateOrderStatus,
+  updateOutlet,
+  updatePaymentStatus,
   updateUserProfile,
   updateFranchiseSettings,
   updatePromotion,
@@ -87,6 +102,7 @@ interface AuthPayload {
   userId?: number
   name?: string
   email?: string
+  outletId?: number
 }
 interface AuthenticatedRequest extends Request {
   auth?: AuthPayload
@@ -132,6 +148,36 @@ const requireAnyModuleAccess = (modules: PermissionModule[], ...roles: AppRole[]
   },
 ]
 
+const resolveOutletId = async (request: Request) => {
+  const auth = (request as AuthenticatedRequest).auth
+  const requested = Number(request.headers['x-outlet-id'] || request.query.outletId)
+  if (auth?.role === 'cashier' && auth.userId) {
+    const user = await getUserById(auth.userId)
+    if (!user?.outletId) throw new Error('Akun cashier belum ditempatkan pada outlet.')
+    return user.outletId
+  }
+  if (Number.isInteger(requested) && requested > 0) {
+    const outlet = await getOutletById(requested)
+    if (!outlet) throw new Error('Outlet tidak ditemukan atau sedang nonaktif.')
+    return outlet.id
+  }
+  if (auth?.userId) {
+    const user = await getUserById(auth.userId)
+    if (user?.outletId && await getOutletById(user.outletId)) return user.outletId
+  }
+  return (await getDefaultOutlet()).id
+}
+
+const normalizeOutlet = (body: Partial<OutletRecord>): Omit<OutletRecord, 'id'> => {
+  const code = String(body.code || '').trim().toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 20)
+  const name = String(body.name || '').trim().slice(0, 80)
+  const address = String(body.address || '').trim().slice(0, 300)
+  const phone = String(body.phone || '').replace(/[^\d+]/g, '').slice(0, 20)
+  if (code.length < 2) throw new Error('Kode outlet minimal 2 karakter.')
+  if (name.length < 2) throw new Error('Nama outlet minimal 2 karakter.')
+  return { code, name, address, phone, active: body.active !== false, isDefault: Boolean(body.isDefault) }
+}
+
 const normalizeProduct = async (body: Partial<ProductRecord>): Promise<ProductInput> => {
   const price = Number(body.price)
   const originalPrice = body.originalPrice ? Number(body.originalPrice) : undefined
@@ -170,6 +216,23 @@ const normalizeProduct = async (body: Partial<ProductRecord>): Promise<ProductIn
     spicy: Boolean(body.spicy),
     active: body.active !== false,
     addons,
+  }
+}
+
+const normalizeProductOutletAssignment = (body: Partial<ProductOutletAssignmentInput>): ProductOutletAssignmentInput => {
+  const assigned = Boolean(body.assigned)
+  const rawPriceOverride = (body as Record<string, unknown>).priceOverride
+  const priceOverride = rawPriceOverride === undefined || rawPriceOverride === null || rawPriceOverride === ''
+    ? undefined
+    : Number(rawPriceOverride)
+  if (priceOverride !== undefined && (!Number.isInteger(priceOverride) || priceOverride < 0 || priceOverride > 100_000_000)) {
+    throw new Error('Harga khusus outlet harus berupa angka 0-100.000.000.')
+  }
+  return {
+    assigned,
+    active: assigned && body.active !== false,
+    available: assigned && body.available !== false,
+    priceOverride,
   }
 }
 
@@ -251,24 +314,54 @@ const normalizeFinancialEntry = (body: Record<string, unknown>) => {
 }
 
 app.get('/api/health', async (_request, response) => {
-  await getFranchiseSettings()
-  response.json({ ok: true, database: storage.databaseLabel })
+  try {
+    await getFranchiseSettings()
+    response.json({ ok: true, database: storage.databaseLabel })
+  } catch (error) {
+    console.error('Error in /api/health:', error)
+    response.status(500).json({ message: 'Database offline.' })
+  }
+})
+
+app.get('/api/outlets', async (_request, response) => {
+  try { response.json(await getOutlets(false)) }
+  catch (error) { response.status(500).json({ message: error instanceof Error ? error.message : 'Outlet gagal dimuat.' }) }
 })
 
 app.get('/api/settings', async (_request, response) => {
-  response.json(await getFranchiseSettings())
+  try {
+    response.json(await getFranchiseSettings())
+  } catch (error) {
+    console.error('Error in /api/settings:', error)
+    response.status(500).json({ message: 'Gagal mengambil pengaturan.' })
+  }
 })
 
-app.get('/api/categories', async (_request, response) => {
-  response.json(await getMenuCategories(false))
+app.get('/api/categories', async (request, response) => {
+  try {
+    response.json(await getMenuCategories(false, false, undefined, await resolveOutletId(request)))
+  } catch (error) {
+    console.error('Error in /api/categories:', error)
+    response.status(500).json({ message: 'Gagal mengambil kategori.' })
+  }
 })
 
-app.get('/api/products', async (_request, response) => {
-  response.json(await getProducts())
+app.get('/api/products', async (request, response) => {
+  try {
+    response.json(await getProducts(false, undefined, await resolveOutletId(request)))
+  } catch (error) {
+    console.error('Error in /api/products:', error)
+    response.status(500).json({ message: 'Gagal mengambil produk.' })
+  }
 })
 
 app.get('/api/promotions', async (_request, response) => {
-  response.json(await getPromotions())
+  try {
+    response.json(await getPromotions())
+  } catch (error) {
+    console.error('Error in /api/promotions:', error)
+    response.status(500).json({ message: 'Gagal mengambil promosi.' })
+  }
 })
 
 app.post('/api/orders', requireRoles('customer'), async (request, response) => {
@@ -280,12 +373,15 @@ app.post('/api/orders', requireRoles('customer'), async (request, response) => {
     if (!allowedPaymentMethods.includes(input.paymentMethod as PaymentMethod)) throw new Error('Metode pembayaran tidak valid.')
     if (input.deliveryMethod === 'delivery' && !input.address?.trim()) throw new Error('Alamat pengantaran wajib diisi.')
     if (!Array.isArray(input.items) || input.items.length === 0) throw new Error('Keranjang masih kosong.')
+    const outletId = Number(input.outletId)
+    if (!Number.isInteger(outletId) || outletId < 1 || !(await getOutletById(outletId))) throw new Error('Pilih outlet aktif sebelum checkout.')
     if (input.items.some((item) => !Number.isInteger(item.productId) || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 20
       || (item.addonIds !== undefined && (!Array.isArray(item.addonIds) || item.addonIds.length > 20 || item.addonIds.some((id) => !Number.isInteger(id)))))) {
       throw new Error('Jumlah produk tidak valid.')
     }
     const order = await createOrder({
       customerId: (request as AuthenticatedRequest).auth!.userId!,
+      outletId,
       customerName: input.customerName.trim(),
       phone: input.phone.trim(),
       address: input.address?.trim(),
@@ -295,10 +391,56 @@ app.post('/api/orders', requireRoles('customer'), async (request, response) => {
       promoCode: input.promoCode?.trim() || undefined,
       items: input.items,
     })
-    response.status(201).json(order)
+    if (!order) throw new Error('Pesanan gagal dibuat.')
+    try {
+      const target = await getOrderPaymentTarget(order.id, order.customerId)
+      const payment = await createPaymentSession({
+        id: order.id,
+        total: order.total,
+        customerName: order.customerName,
+        email: target?.email ? String(target.email) : undefined,
+        phone: order.phone,
+        paymentMethod: order.paymentMethod,
+      })
+      await savePaymentSession(payment)
+      response.status(201).json(await getOrderById(order.id))
+    } catch (paymentError) {
+      await updateOrderStatus(order.id, 'cancelled')
+      throw new Error(paymentError instanceof Error ? paymentError.message : 'Sesi pembayaran gagal dibuat.')
+    }
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Pesanan gagal dibuat.' })
   }
+})
+
+app.get('/api/payments/:orderId/status', requireRoles('customer'), async (request, response) => {
+  const payment = await getPaymentSession(String(request.params.orderId), (request as AuthenticatedRequest).auth!.userId!)
+  if (!payment) return response.status(404).json({ message: 'Pembayaran tidak ditemukan.' })
+  response.json(payment)
+})
+
+app.post('/api/payments/:orderId/simulate', requireRoles('customer'), async (request, response) => {
+  if (paymentMode() !== 'local-simulator') return response.status(403).json({ message: 'Simulator pembayaran hanya tersedia saat Midtrans belum dikonfigurasi.' })
+  const orderId = String(request.params.orderId)
+  const current = await getPaymentSession(orderId, (request as AuthenticatedRequest).auth!.userId!)
+  if (!current || current.provider !== 'simulator') return response.status(404).json({ message: 'Pembayaran simulator tidak ditemukan.' })
+  const result = request.body?.result === 'paid' ? 'paid' : 'failed'
+  response.json(await updatePaymentStatus(orderId, result, { paymentType: 'local_simulator', rawResponse: { result } }))
+})
+
+app.post('/api/payments/midtrans/notification', async (request, response) => {
+  const notification = request.body as MidtransNotification
+  if (!verifyMidtransNotification(notification)) return response.status(401).json({ message: 'Signature notifikasi Midtrans tidak valid.' })
+  const orderId = String(notification.order_id || '')
+  const target = await getOrderPaymentTarget(orderId)
+  if (!target) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
+  if (Math.round(Number(notification.gross_amount)) !== Number(target.total)) return response.status(400).json({ message: 'Nominal pembayaran tidak sesuai dengan pesanan.' })
+  const payment = await updatePaymentStatus(orderId, paymentStatusFromMidtrans(notification), {
+    transactionId: notification.transaction_id ? String(notification.transaction_id) : undefined,
+    paymentType: notification.payment_type ? String(notification.payment_type) : undefined,
+    rawResponse: notification,
+  })
+  response.json(payment || { received: true })
 })
 
 app.post('/api/auth/register', async (request, response) => {
@@ -310,7 +452,7 @@ app.post('/api/auth/register', async (request, response) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email tidak valid.')
     if (password.length < 8) throw new Error('Password minimal 8 karakter.')
     const user = await createUser({ name, email, password, role: 'customer' })
-    const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email }, jwtSecret, { expiresIn: '7d' })
+    const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email, outletId: user.outletId }, jwtSecret, { expiresIn: '7d' })
     response.status(201).json({ token, user })
   } catch (error) {
     const message = isUniqueError(error)
@@ -326,8 +468,8 @@ app.post('/api/auth/login', async (request, response) => {
   const role = String(request.body?.role || '') as UserRole
   if (!['customer', 'cashier', 'manager', 'admin'].includes(role)) return response.status(400).json({ message: 'Tipe pengguna tidak valid.' })
   const user = await authenticateUser(email, password, role)
-  if (!user) return response.status(401).json({ message: 'Email, password, atau tipe pengguna salah.' })
-  const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email }, jwtSecret, { expiresIn: '7d' })
+  if (!user) return response.status(401).json({ message: 'Email atau password salah.' })
+  const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email, outletId: user.outletId }, jwtSecret, { expiresIn: '7d' })
   response.json({ token, user })
 })
 
@@ -338,8 +480,13 @@ app.get('/api/auth/me', requireRoles('customer', 'cashier', 'manager', 'admin'),
 })
 
 app.get('/api/permissions/me', requireRoles('cashier', 'manager', 'admin'), async (request, response) => {
-  const auth = (request as AuthenticatedRequest).auth!
-  response.json({ role: auth.role, modules: await getRolePermissions(auth.role) })
+  try {
+    const auth = (request as AuthenticatedRequest).auth!
+    response.json({ role: auth.role, modules: await getRolePermissions(auth.role) })
+  } catch (error) {
+    console.error('Error in /api/permissions/me:', error)
+    response.status(500).json({ message: error instanceof Error ? error.message : 'Terjadi kesalahan internal pada server.' })
+  }
 })
 
 app.get('/api/admin/rbac', ...requireModuleAccess('rbac', 'admin'), async (_request, response) => {
@@ -386,20 +533,59 @@ app.get('/api/customer/orders', requireRoles('customer'), async (request, respon
   response.json(await getCustomerOrders((request as AuthenticatedRequest).auth!.userId!))
 })
 
-app.get('/api/cashier/stats', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (_request, response) => {
-  response.json(await getDashboardStats())
+app.get('/api/staff/outlets', requireRoles('cashier', 'manager', 'admin'), async (request, response) => {
+  const auth = (request as AuthenticatedRequest).auth!
+  if (auth.role === 'cashier') {
+    const user = await getUserById(auth.userId!)
+    const outlet = user?.outletId ? await getOutletById(user.outletId) : undefined
+    return response.json(outlet ? [outlet] : [])
+  }
+  response.json(await getOutlets(false))
 })
 
-app.get('/api/cashier/orders', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (_request, response) => {
-  response.json(await getOrders())
+app.get('/api/cashier/stats', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (request, response) => {
+  response.json(await getDashboardStats(await resolveOutletId(request)))
+})
+
+app.get('/api/cashier/orders', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (request, response) => {
+  response.json(await getOrders(await resolveOutletId(request)))
 })
 
 app.patch('/api/cashier/orders/:id/status', ...requireModuleAccess('cashier_station', 'cashier', 'manager', 'admin'), async (request, response) => {
-  const status = String(request.body?.status || '')
-  if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
-  const order = await updateOrderStatus(String(request.params.id), status)
-  if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
-  response.json(order)
+  try {
+    const status = String(request.body?.status || '')
+    if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
+    const order = await updateOrderStatus(String(request.params.id), status, await resolveOutletId(request))
+    if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
+    response.json(order)
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : 'Gagal memperbarui status.' })
+  }
+})
+
+app.get('/api/manager/outlets', ...requireModuleAccess('outlets', 'manager', 'admin'), async (_request, response) => {
+  response.json(await getOutlets(true))
+})
+
+app.post('/api/manager/outlets', ...requireModuleAccess('outlets', 'manager', 'admin'), async (request, response) => {
+  try { response.status(201).json(await createOutlet(normalizeOutlet(request.body))) }
+  catch (error) { response.status(400).json({ message: isUniqueError(error) ? 'Kode outlet sudah digunakan.' : error instanceof Error ? error.message : 'Outlet gagal dibuat.' }) }
+})
+
+app.put('/api/manager/outlets/:id', ...requireModuleAccess('outlets', 'manager', 'admin'), async (request, response) => {
+  try {
+    const outlet = await updateOutlet(Number(request.params.id), normalizeOutlet(request.body))
+    if (!outlet) return response.status(404).json({ message: 'Outlet tidak ditemukan.' })
+    response.json(outlet)
+  } catch (error) { response.status(400).json({ message: isUniqueError(error) ? 'Kode outlet sudah digunakan.' : error instanceof Error ? error.message : 'Outlet gagal diperbarui.' }) }
+})
+
+app.delete('/api/manager/outlets/:id', ...requireModuleAccess('outlets', 'manager', 'admin'), async (request, response) => {
+  try {
+    const result = await deleteOutlet(Number(request.params.id))
+    if (!result.deleted && !result.archived) return response.status(404).json({ message: 'Outlet tidak ditemukan.' })
+    response.json(result)
+  } catch (error) { response.status(400).json({ message: error instanceof Error ? error.message : 'Outlet gagal dihapus.' }) }
 })
 
 app.get('/api/manager/categories', ...requireAnyModuleAccess(['categories', 'products'], 'manager', 'admin'), async (_request, response) => {
@@ -442,12 +628,12 @@ app.delete('/api/manager/categories/:id', ...requireModuleAccess('categories', '
   response.json(result)
 })
 
-app.get('/api/manager/products', ...requireAnyModuleAccess(['products', 'inventory'], 'manager', 'admin'), async (_request, response) => {
-  response.json(await getProducts(true))
+app.get('/api/manager/products', ...requireAnyModuleAccess(['products', 'inventory'], 'manager', 'admin'), async (request, response) => {
+  response.json(await getProducts(true, undefined, await resolveOutletId(request)))
 })
 
 app.post('/api/manager/products', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
-  try { response.status(201).json(await createProduct(await normalizeProduct(request.body))) }
+  try { response.status(201).json(await createProduct(await normalizeProduct(request.body), await resolveOutletId(request))) }
   catch (error) { response.status(400).json({ message: error instanceof Error ? error.message : 'Produk gagal dibuat.' }) }
 })
 
@@ -463,6 +649,20 @@ app.patch('/api/manager/products/:id/active', ...requireModuleAccess('products',
   const product = await setProductActive(Number(request.params.id), Boolean(request.body?.active))
   if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
   response.json(product)
+})
+
+app.put('/api/manager/products/:id/outlet-assignment', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
+  try {
+    const product = await setProductOutletAssignment(
+      await resolveOutletId(request),
+      Number(request.params.id),
+      normalizeProductOutletAssignment(request.body || {}),
+    )
+    if (!product) return response.status(404).json({ message: 'Produk tidak ditemukan.' })
+    response.json(product)
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : 'Assignment produk outlet gagal disimpan.' })
+  }
 })
 
 app.delete('/api/manager/products/:id', ...requireModuleAccess('products', 'manager', 'admin'), async (request, response) => {
@@ -483,8 +683,8 @@ app.put('/api/manager/settings', ...requireModuleAccess('settings', 'manager', '
   }
 })
 
-app.get('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (_request, response) => {
-  response.json(await getCashiers())
+app.get('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (request, response) => {
+  response.json(await getCashiers(await resolveOutletId(request)))
 })
 
 app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 'admin'), async (request, response) => {
@@ -492,10 +692,12 @@ app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 
     const name = String(request.body?.name || '').trim()
     const email = String(request.body?.email || '').trim().toLowerCase()
     const password = String(request.body?.password || '')
+    const outletId = Number(request.body?.outletId || await resolveOutletId(request))
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
     if (password.length < 8) throw new Error('Password cashier minimal 8 karakter.')
-    response.status(201).json(await createUser({ name, email, password, role: 'cashier' }))
+    if (!Number.isInteger(outletId) || !(await getOutletById(outletId))) throw new Error('Outlet cashier tidak valid.')
+    response.status(201).json(await createUser({ name, email, password, role: 'cashier', outletId }))
   } catch (error) {
     const message = isUniqueError(error)
       ? 'Email cashier sudah terdaftar.'
@@ -511,11 +713,13 @@ app.put('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager
     const email = String(request.body?.email || '').trim().toLowerCase()
     const password = String(request.body?.password || '')
     const active = request.body?.active !== false
+    const outletId = Number(request.body?.outletId || await resolveOutletId(request))
     if (!Number.isInteger(id) || id < 1) throw new Error('ID cashier tidak valid.')
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
     if (password && password.length < 8) throw new Error('Password baru minimal 8 karakter.')
-    const cashier = await updateCashier(id, { name, email, password: password || undefined, active })
+    if (!Number.isInteger(outletId) || !(await getOutletById(outletId))) throw new Error('Outlet cashier tidak valid.')
+    const cashier = await updateCashier(id, { name, email, password: password || undefined, active, outletId })
     if (!cashier) return response.status(404).json({ message: 'Cashier tidak ditemukan.' })
     response.json(cashier)
   } catch (error) {
@@ -559,13 +763,13 @@ app.delete('/api/manager/promotions/:id', ...requireModuleAccess('promotions', '
   response.json({ deleted: true })
 })
 
-app.get('/api/manager/inventory', ...requireModuleAccess('inventory', 'manager', 'admin'), async (_request, response) => {
-  response.json(await getInventorySnapshot())
+app.get('/api/manager/inventory', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
+  response.json(await getInventorySnapshot(await resolveOutletId(request)))
 })
 
 app.post('/api/manager/inventory/items', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   try {
-    const item = await createInventoryItem(normalizeInventoryItem(request.body as Record<string, unknown>, true), (request as AuthenticatedRequest).auth?.userId)
+    const item = await createInventoryItem(await resolveOutletId(request), normalizeInventoryItem(request.body as Record<string, unknown>, true), (request as AuthenticatedRequest).auth?.userId)
     response.status(201).json(item)
   } catch (error) {
     const message = isUniqueError(error)
@@ -580,7 +784,7 @@ app.put('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 
     const id = Number(request.params.id)
     if (!Number.isInteger(id) || id < 1) throw new Error('ID inventory tidak valid.')
     const input = normalizeInventoryItem(request.body as Record<string, unknown>, false)
-    const item = await updateInventoryItem(id, input)
+    const item = await updateInventoryItem(await resolveOutletId(request), id, input)
     if (!item) return response.status(404).json({ message: 'Item inventory tidak ditemukan.' })
     response.json(item)
   } catch (error) {
@@ -594,14 +798,14 @@ app.put('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 
 app.delete('/api/manager/inventory/items/:id', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   const id = Number(request.params.id)
   if (!Number.isInteger(id) || id < 1) return response.status(400).json({ message: 'ID inventory tidak valid.' })
-  const result = await deleteInventoryItem(id)
+  const result = await deleteInventoryItem(await resolveOutletId(request), id)
   if (!result.deleted && !result.archived) return response.status(404).json({ message: 'Item inventory tidak ditemukan.' })
   response.json(result)
 })
 
 app.post('/api/manager/inventory/movements', ...requireModuleAccess('inventory', 'manager', 'admin'), async (request, response) => {
   try {
-    const movement = await createStockMovement(normalizeStockMovement(request.body as Record<string, unknown>), (request as AuthenticatedRequest).auth?.userId)
+    const movement = await createStockMovement(await resolveOutletId(request), normalizeStockMovement(request.body as Record<string, unknown>), (request as AuthenticatedRequest).auth?.userId)
     response.status(201).json(movement)
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Pergerakan stok gagal dicatat.' })
@@ -614,7 +818,7 @@ app.get('/api/manager/reports', ...requireModuleAccess('reports', 'manager', 'ad
     const from = normalizeDate(request.query.from || `${today.slice(0, 8)}01`, 'Tanggal awal')
     const to = normalizeDate(request.query.to || today, 'Tanggal akhir')
     if (from > to) throw new Error('Tanggal awal tidak boleh setelah tanggal akhir.')
-    response.json(await getReportData(from, to))
+    response.json(await getReportData(await resolveOutletId(request), from, to))
   } catch (error) {
     response.status(400).json({ message: error instanceof Error ? error.message : 'Laporan gagal dibuat.' })
   }
@@ -623,7 +827,7 @@ app.get('/api/manager/reports', ...requireModuleAccess('reports', 'manager', 'ad
 app.post('/api/manager/financial-entries', ...requireModuleAccess('reports', 'manager', 'admin'), async (request, response) => {
   try {
     response.status(201).json(await createFinancialEntry(
-      normalizeFinancialEntry(request.body as Record<string, unknown>),
+      await resolveOutletId(request), normalizeFinancialEntry(request.body as Record<string, unknown>),
       (request as AuthenticatedRequest).auth?.userId,
     ))
   } catch (error) {
@@ -634,24 +838,28 @@ app.post('/api/manager/financial-entries', ...requireModuleAccess('reports', 'ma
 app.delete('/api/manager/financial-entries/:id', ...requireModuleAccess('reports', 'manager', 'admin'), async (request, response) => {
   const id = Number(request.params.id)
   if (!Number.isInteger(id) || id < 1) return response.status(400).json({ message: 'ID transaksi tidak valid.' })
-  if (!(await deleteFinancialEntry(id))) return response.status(404).json({ message: 'Transaksi keuangan tidak ditemukan.' })
+  if (!(await deleteFinancialEntry(await resolveOutletId(request), id))) return response.status(404).json({ message: 'Transaksi keuangan tidak ditemukan.' })
   response.json({ deleted: true })
 })
 
-app.get('/api/admin/stats', ...requireModuleAccess('cashier_station', 'admin'), async (_request, response) => {
-  response.json(await getDashboardStats())
+app.get('/api/admin/stats', ...requireModuleAccess('cashier_station', 'admin'), async (request, response) => {
+  response.json(await getDashboardStats(await resolveOutletId(request)))
 })
 
-app.get('/api/admin/orders', ...requireModuleAccess('cashier_station', 'admin'), async (_request, response) => {
-  response.json(await getOrders())
+app.get('/api/admin/orders', ...requireModuleAccess('cashier_station', 'admin'), async (request, response) => {
+  response.json(await getOrders(await resolveOutletId(request)))
 })
 
 app.patch('/api/admin/orders/:id/status', ...requireModuleAccess('cashier_station', 'admin'), async (request, response) => {
-  const status = String(request.body?.status || '')
-  if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
-  const order = await updateOrderStatus(String(request.params.id), status)
-  if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
-  response.json(order)
+  try {
+    const status = String(request.body?.status || '')
+    if (!allowedStatuses.includes(status)) return response.status(400).json({ message: 'Status tidak valid.' })
+    const order = await updateOrderStatus(String(request.params.id), status, await resolveOutletId(request))
+    if (!order) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })
+    response.json(order)
+  } catch (error) {
+    response.status(400).json({ message: error instanceof Error ? error.message : 'Gagal memperbarui status.' })
+  }
 })
 
 app.get('/api/admin/products', ...requireModuleAccess('products', 'admin'), async (_request, response) => {
@@ -688,7 +896,17 @@ if (existsSync(distDirectory)) {
   app.get(/^(?!\/api).*/, (_request, response) => response.sendFile(path.join(distDirectory, 'index.html')))
 }
 
+import { appendFileSync } from 'node:fs'
+
 app.use((error: Error, _request: Request, response: Response, _next: NextFunction) => {
   console.error(error)
-  response.status(500).json({ message: 'Terjadi masalah pada server.' })
+  try {
+    appendFileSync(
+      path.resolve(process.cwd(), 'error-log-temp.txt'),
+      `[${new Date().toISOString()}] ${error.stack || error.message}\n\n`
+    )
+  } catch (e) {
+    // ignore
+  }
+  response.status(500).json({ message: error.message || 'Terjadi masalah pada server.' })
 })

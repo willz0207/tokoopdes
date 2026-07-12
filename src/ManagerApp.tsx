@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useState } from 'react'
-import { BadgePercent, BarChart3, Check, ExternalLink, Package, Pencil, Plus, RefreshCw, Settings, ShieldCheck, ShoppingBag, Tags, Trash2, UserPlus, UsersRound, Warehouse, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { BadgePercent, BarChart3, Building2, Check, ExternalLink, MapPin, Package, Pencil, Plus, RefreshCw, Settings, ShieldCheck, ShoppingBag, Tags, Trash2, UserPlus, UsersRound, Warehouse, X } from 'lucide-react'
 import { managerApi } from './api'
 import { defaultCategories, formatRupiah } from './data'
 import { useFranchiseSettings } from './franchise'
 import { readProductImageFile } from './productImage'
-import type { FranchiseSettings, MenuCategory, PermissionModule, PermissionRole, Product, ProductAddonInput, Promotion, RolePermissionMatrix, User } from './types'
+import { homePathForRole } from './roleRoutes'
+import type { FranchiseSettings, MenuCategory, Outlet, PermissionModule, PermissionRole, Product, ProductAddonInput, Promotion, RolePermissionMatrix, User } from './types'
 import ProfileMenu from './ProfileMenu'
 import InventoryModule from './InventoryModule'
 import ReportsModule from './ReportsModule'
 import './manager.css'
 
-type ManagerTab = 'products' | 'categories' | 'promotions' | 'cashiers' | 'inventory' | 'reports' | 'settings' | 'rbac'
+type ManagerTab = 'products' | 'categories' | 'promotions' | 'cashiers' | 'inventory' | 'reports' | 'outlets' | 'settings' | 'rbac'
 
 const tabModules: Record<ManagerTab, PermissionModule> = {
   products: 'products',
@@ -19,12 +20,14 @@ const tabModules: Record<ManagerTab, PermissionModule> = {
   cashiers: 'cashiers',
   inventory: 'inventory',
   reports: 'reports',
+  outlets: 'outlets',
   settings: 'settings',
   rbac: 'rbac',
 }
 
 function ManagerApp() {
   const { settings, setSettings } = useFranchiseSettings()
+  const loadedRef = useRef(false)
   const [user, setUser] = useState<User | null>(() => {
     try { return JSON.parse(localStorage.getItem('franchise-user') || 'null') as User | null } catch { return null }
   })
@@ -33,13 +36,20 @@ function ManagerApp() {
   const [categories, setCategories] = useState<MenuCategory[]>([])
   const [promotions, setPromotions] = useState<Promotion[]>([])
   const [cashiers, setCashiers] = useState<User[]>([])
+  const [outlets, setOutlets] = useState<Outlet[]>([])
+  const [selectedOutletId, setSelectedOutletId] = useState<number | undefined>(() => {
+    const value = Number(localStorage.getItem('franchise-outlet-id'))
+    return Number.isInteger(value) && value > 0 ? value : undefined
+  })
   const [permissions, setPermissions] = useState<Record<PermissionModule, boolean> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [productModal, setProductModal] = useState<Product | 'new' | null>(null)
+  const [productOutletModal, setProductOutletModal] = useState<Product | null>(null)
   const [categoryModal, setCategoryModal] = useState<MenuCategory | 'new' | null>(null)
   const [promotionModal, setPromotionModal] = useState<Promotion | 'new' | null>(null)
   const [cashierModal, setCashierModal] = useState<User | 'new' | null>(null)
+  const [outletModal, setOutletModal] = useState<Outlet | 'new' | null>(null)
 
   const logout = useCallback(() => {
     localStorage.removeItem('franchise-user-token')
@@ -51,6 +61,12 @@ function ManagerApp() {
     setLoading(true)
     setError('')
     try {
+      const activeOutlets = await managerApi.availableOutlets()
+      const savedOutletId = Number(localStorage.getItem('franchise-outlet-id'))
+      const selectedOutlet = activeOutlets.find((outlet) => outlet.id === savedOutletId) || activeOutlets.find((outlet) => outlet.isDefault) || activeOutlets[0]
+      if (!selectedOutlet) throw new Error('Belum ada outlet aktif. Buat atau aktifkan outlet terlebih dahulu.')
+      localStorage.setItem('franchise-outlet-id', String(selectedOutlet.id))
+      setSelectedOutletId(selectedOutlet.id)
       const nextPermissions = await managerApi.myPermissions()
       setPermissions(nextPermissions.modules)
       const [nextProducts, nextCategories, nextPromotions, nextCashiers] = await Promise.all([
@@ -63,6 +79,7 @@ function ManagerApp() {
       setCategories(nextCategories)
       setPromotions(nextPromotions)
       setCashiers(nextCashiers)
+      setOutlets(nextPermissions.modules.outlets ? await managerApi.outlets() : activeOutlets)
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : 'Data manager gagal dimuat.'
       setError(message)
@@ -75,6 +92,13 @@ function ManagerApp() {
       window.location.replace('/login')
       return
     }
+    const roleHomePath = homePathForRole(user.role)
+    if (window.location.pathname !== roleHomePath) {
+      window.location.replace(roleHomePath)
+      return
+    }
+    if (loadedRef.current) return
+    loadedRef.current = true
     void loadData()
   }, [loadData, user])
 
@@ -86,8 +110,8 @@ function ManagerApp() {
 
   const toggleProduct = async (product: Product) => {
     try {
-      const updated = await managerApi.setProductActive(product.id, !product.active)
-      setProducts((current) => current.map((item) => item.id === product.id ? updated : item))
+      await managerApi.setProductActive(product.id, !product.active)
+      await loadData()
     } catch (actionError) { setError(actionError instanceof Error ? actionError.message : 'Produk gagal diperbarui.') }
   }
 
@@ -122,6 +146,18 @@ function ManagerApp() {
     catch (actionError) { setError(actionError instanceof Error ? actionError.message : 'Cashier gagal dihapus.') }
   }
 
+  const removeOutlet = async (outlet: Outlet) => {
+    if (!window.confirm(`Hapus outlet ${outlet.name}? Outlet yang sudah memiliki transaksi akan diarsipkan.`)) return
+    try { await managerApi.deleteOutlet(outlet.id); await loadData() }
+    catch (actionError) { setError(actionError instanceof Error ? actionError.message : 'Outlet gagal dihapus.') }
+  }
+
+  const changeOutlet = (outletId: number) => {
+    localStorage.setItem('franchise-outlet-id', String(outletId))
+    setSelectedOutletId(outletId)
+    void loadData()
+  }
+
   const canAccess = (module: PermissionModule) => Boolean(permissions?.[module])
   const navigationTabs: Array<{ tab: ManagerTab; module: PermissionModule; label: string; Icon: typeof Package }> = [
     { tab: 'products', module: 'products', label: 'Produk', Icon: Package },
@@ -130,51 +166,69 @@ function ManagerApp() {
     { tab: 'cashiers', module: 'cashiers', label: 'Cashier', Icon: UsersRound },
     { tab: 'inventory', module: 'inventory', label: 'Inventory', Icon: Warehouse },
     { tab: 'reports', module: 'reports', label: 'Report', Icon: BarChart3 },
+    { tab: 'outlets', module: 'outlets', label: 'Outlet', Icon: Building2 },
     { tab: 'settings', module: 'settings', label: 'Franchise', Icon: Settings },
     { tab: 'rbac', module: 'rbac', label: 'RBAC', Icon: ShieldCheck },
   ]
-  const pageTitle = tab === 'products' ? 'Kelola produk' : tab === 'categories' ? 'Kelola kategori menu' : tab === 'promotions' ? 'Kelola promosi' : tab === 'cashiers' ? 'Kelola cashier' : tab === 'inventory' ? 'Kelola inventory' : tab === 'reports' ? 'Report bisnis' : tab === 'rbac' ? 'Kontrol akses modul' : 'Pengaturan franchise'
-  const panelTitle = tab === 'products' ? 'Katalog menu' : tab === 'categories' ? 'Kategori menu' : tab === 'promotions' ? 'Daftar promosi' : tab === 'cashiers' ? 'Daftar cashier' : tab === 'inventory' ? 'Stock control' : tab === 'reports' ? 'Laporan operasional & keuangan' : tab === 'rbac' ? 'Role-Based Access Control' : 'Identitas franchise'
-  const panelDescription = tab === 'products' ? 'Atur produk beserta pilihan add-on.' : tab === 'categories' ? 'Tambah, ubah, urutkan, aktifkan, atau nonaktifkan kategori yang tampil di storefront.' : tab === 'promotions' ? 'Atur kode, nilai diskon, periode, dan status promosi.' : tab === 'cashiers' ? 'Tambah, ubah, aktifkan, nonaktifkan, atau hapus akun cashier.' : tab === 'inventory' ? 'Pantau jumlah stok, batas minimum, dan seluruh pergerakan barang.' : tab === 'reports' ? 'Pantau penjualan real-time, stok, pelanggan, laba rugi, arus kas, neraca, dan modal.' : tab === 'rbac' ? 'Admin dapat mengatur modul mana saja yang boleh diakses oleh cashier, manager, dan admin.' : 'Ubah nama usaha, logo teks, warna, halaman depan, kontak, dan prefix pesanan.'
-  const addButtonLabel = tab === 'products' ? 'produk' : tab === 'categories' ? 'kategori' : tab === 'promotions' ? 'promosi' : 'cashier'
-  const showCreateButton = ['products', 'categories', 'promotions', 'cashiers'].includes(tab)
+  const pageTitle = tab === 'products' ? 'Kelola produk' : tab === 'categories' ? 'Kelola kategori menu' : tab === 'promotions' ? 'Kelola promosi' : tab === 'cashiers' ? 'Kelola cashier' : tab === 'inventory' ? 'Kelola inventory' : tab === 'reports' ? 'Report bisnis' : tab === 'outlets' ? 'Kelola outlet' : tab === 'rbac' ? 'Kontrol akses modul' : 'Pengaturan franchise'
+  const panelTitle = tab === 'products' ? 'Katalog menu' : tab === 'categories' ? 'Kategori menu' : tab === 'promotions' ? 'Daftar promosi' : tab === 'cashiers' ? 'Daftar cashier' : tab === 'inventory' ? 'Stock control' : tab === 'reports' ? 'Laporan operasional & keuangan' : tab === 'outlets' ? 'Jaringan outlet' : tab === 'rbac' ? 'Role-Based Access Control' : 'Identitas franchise'
+  const panelDescription = tab === 'products' ? 'Kelola master produk, add-on, serta ketersediaannya pada outlet aktif.' : tab === 'categories' ? 'Tambah, ubah, urutkan, aktifkan, atau nonaktifkan kategori yang tampil di storefront.' : tab === 'promotions' ? 'Atur kode, nilai diskon, periode, dan status promosi.' : tab === 'cashiers' ? 'Tambah, ubah, aktifkan, nonaktifkan, atau hapus akun cashier pada outlet terpilih.' : tab === 'inventory' ? 'Pantau stok dan pergerakan barang khusus outlet terpilih.' : tab === 'reports' ? 'Pantau penjualan dan keuangan outlet terpilih.' : tab === 'outlets' ? 'Tambah cabang, atur alamat, status operasional, dan outlet utama.' : tab === 'rbac' ? 'Admin dapat mengatur modul mana saja yang boleh diakses oleh cashier, manager, dan admin.' : 'Ubah nama usaha, logo teks, warna, halaman depan, kontak, dan prefix pesanan.'
+  const addButtonLabel = tab === 'products' ? 'produk' : tab === 'categories' ? 'kategori' : tab === 'promotions' ? 'promosi' : tab === 'outlets' ? 'outlet' : 'cashier'
+  const showCreateButton = ['products', 'categories', 'promotions', 'cashiers', 'outlets'].includes(tab)
   const openCreateModal = () => {
     if (tab === 'products') setProductModal('new')
     if (tab === 'categories') setCategoryModal('new')
     if (tab === 'promotions') setPromotionModal('new')
     if (tab === 'cashiers') setCashierModal('new')
+    if (tab === 'outlets') setOutletModal('new')
   }
 
   return <div className="manager-shell">
     <aside className="manager-sidebar">
-      <a className="manager-logo" href="/manager"><span>{settings.shortName}</span><div><b>Manager Hub</b><small>{settings.businessName}</small></div></a>
+      <a className="manager-logo" href={user ? homePathForRole(user.role) : '/manager'}><span>{settings.shortName}</span><div><b>{user?.role === 'admin' ? 'Admin Hub' : 'Manager Hub'}</b><small>{settings.businessName}</small></div></a>
       <nav>{navigationTabs.filter((item) => canAccess(item.module) && (item.module !== 'rbac' || user?.role === 'admin')).map((item) => <button key={item.tab} className={tab === item.tab ? 'active' : ''} onClick={() => setTab(item.tab)}><item.Icon size={18} /> {item.label}</button>)}</nav>
       {canAccess('cashier_station') && <div className="manager-side-bottom"><a href="/cashier"><ShoppingBag size={17} /> Stasiun cashier <ExternalLink size={13} /></a></div>}
     </aside>
     <main className="manager-main">
-      <header className="manager-header"><div><span>{user?.role === 'admin' ? 'ADMIN DASHBOARD' : 'MANAGER DASHBOARD'}</span><h1>{pageTitle}</h1></div>{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</header>
+      <header className="manager-header"><div><span>{user?.role === 'admin' ? 'ADMIN DASHBOARD' : 'MANAGER DASHBOARD'}</span><h1>{pageTitle}</h1></div><div className="manager-header-actions"><label className="outlet-switcher"><Building2 size={16} /><span><small>OUTLET AKTIF</small><select value={selectedOutletId || ''} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.filter((outlet) => outlet.active).map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></span></label>{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div></header>
       <div className="manager-content">
         {error && <div className="manager-error">{error}<button onClick={() => setError('')}><X size={15} /></button></div>}
-        <section className="manager-summary"><article><span className="red"><Package /></span><div><small>Total produk</small><b>{products.length}</b></div></article><article><span className="green"><Check /></span><div><small>Produk aktif</small><b>{products.filter((item) => item.active).length}</b></div></article><article><span className="orange"><BadgePercent /></span><div><small>Promosi aktif</small><b>{promotions.filter((item) => item.active).length}</b></div></article><article><span className="blue"><UsersRound /></span><div><small>Akun cashier</small><b>{cashiers.length}</b></div></article></section>
+        <section className="manager-summary"><article><span className="red"><Package /></span><div><small>Master produk</small><b>{products.length}</b></div></article><article><span className="green"><Check /></span><div><small>Dijual di outlet</small><b>{products.filter((item) => item.active && item.outletAssignment?.assigned && item.outletAssignment.active && item.outletAssignment.available).length}</b></div></article><article><span className="orange"><BadgePercent /></span><div><small>Promosi aktif</small><b>{promotions.filter((item) => item.active).length}</b></div></article><article><span className="blue"><UsersRound /></span><div><small>Akun cashier</small><b>{cashiers.length}</b></div></article></section>
         <section className={`manager-panel${tab === 'reports' ? ' report-panel' : ''}`}><div className="manager-panel-head"><div><h2>{panelTitle}</h2><p>{panelDescription}</p></div><div>{showCreateButton && <button className="manager-refresh" onClick={() => void loadData()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Perbarui</button>}{showCreateButton && <button className="manager-add" onClick={openCreateModal}><Plus size={16} /> Tambah {addButtonLabel}</button>}</div></div>
-          {tab === 'settings' ? <SettingsEditor settings={settings} saved={setSettings} /> : tab === 'inventory' ? <InventoryModule /> : tab === 'reports' ? <ReportsModule /> : tab === 'rbac' ? <RbacModule onSaved={() => void loadData()} /> : loading ? <div className="manager-empty"><RefreshCw className="spin" /> Memuat data...</div> : tab === 'products' ? <ProductGrid products={products} edit={setProductModal} toggle={toggleProduct} remove={removeProduct} /> : tab === 'categories' ? <CategoryGrid categories={categories} edit={setCategoryModal} toggle={toggleCategory} remove={removeCategory} /> : tab === 'promotions' ? <PromotionGrid promotions={promotions} edit={setPromotionModal} remove={removePromotion} /> : <CashierGrid cashiers={cashiers} edit={setCashierModal} remove={removeCashier} />}
+          {tab === 'settings' ? <SettingsEditor settings={settings} saved={setSettings} /> : tab === 'inventory' ? <InventoryModule /> : tab === 'reports' ? <ReportsModule /> : tab === 'rbac' ? <RbacModule onSaved={() => void loadData()} /> : loading ? <div className="manager-empty"><RefreshCw className="spin" /> Memuat data...</div> : tab === 'products' ? <ProductGrid products={products} edit={setProductModal} configureOutlet={setProductOutletModal} toggle={toggleProduct} remove={removeProduct} /> : tab === 'categories' ? <CategoryGrid categories={categories} edit={setCategoryModal} toggle={toggleCategory} remove={removeCategory} /> : tab === 'promotions' ? <PromotionGrid promotions={promotions} edit={setPromotionModal} remove={removePromotion} /> : tab === 'outlets' ? <OutletGrid outlets={outlets} edit={setOutletModal} remove={removeOutlet} select={changeOutlet} selectedOutletId={selectedOutletId} /> : <CashierGrid cashiers={cashiers} edit={setCashierModal} remove={removeCashier} />}
         </section>
       </div>
     </main>
     {productModal && <ProductEditor product={productModal === 'new' ? null : productModal} categories={categories} close={() => setProductModal(null)} saved={() => { setProductModal(null); void loadData() }} />}
+    {productOutletModal && selectedOutletId && <ProductOutletEditor product={productOutletModal} outletName={outlets.find((outlet) => outlet.id === selectedOutletId)?.name || 'Outlet aktif'} close={() => setProductOutletModal(null)} saved={() => { setProductOutletModal(null); void loadData() }} />}
     {categoryModal && <CategoryEditor category={categoryModal === 'new' ? null : categoryModal} close={() => setCategoryModal(null)} saved={() => { setCategoryModal(null); void loadData() }} />}
     {promotionModal && <PromotionEditor promotion={promotionModal === 'new' ? null : promotionModal} close={() => setPromotionModal(null)} saved={() => { setPromotionModal(null); void loadData() }} />}
-    {cashierModal && <CashierEditor cashier={cashierModal === 'new' ? null : cashierModal} close={() => setCashierModal(null)} saved={() => { setCashierModal(null); void loadData() }} />}
+    {cashierModal && <CashierEditor cashier={cashierModal === 'new' ? null : cashierModal} outlets={outlets.filter((outlet) => outlet.active)} selectedOutletId={selectedOutletId} close={() => setCashierModal(null)} saved={() => { setCashierModal(null); void loadData() }} />}
+    {outletModal && <OutletEditor outlet={outletModal === 'new' ? null : outletModal} close={() => setOutletModal(null)} saved={() => { setOutletModal(null); void loadData() }} />}
   </div>
 }
 
-function ProductGrid({ products, edit, toggle, remove }: { products: Product[]; edit: (value: Product) => void; toggle: (value: Product) => void; remove: (value: Product) => void }) {
-  return <div className="manager-grid">{products.map((product) => <article className={product.active ? 'manager-product' : 'manager-product inactive'} key={product.id}><div className={`manager-product-art ${product.tone}${product.imageUrl ? ' has-photo' : ''}`}>{product.imageUrl ? <img className="manager-product-photo" src={product.imageUrl} alt={product.name} /> : product.emoji}{product.badge && <small>{product.badge}</small>}</div><div className="manager-product-body"><span>{product.category}</span><h3>{product.name}</h3><p>{product.description}</p><strong>{formatRupiah(product.price)}</strong>{product.addons.length > 0 && <i className="product-addon-count">+ {product.addons.filter((addon) => addon.active).length} add-on aktif</i>}</div><footer><label><input type="checkbox" checked={Boolean(product.active)} onChange={() => void toggle(product)} /><i />{product.active ? 'Aktif' : 'Nonaktif'}</label><div><button onClick={() => edit(product)} aria-label={`Edit ${product.name}`}><Pencil size={15} /></button><button className="danger" onClick={() => void remove(product)} aria-label={`Hapus ${product.name}`}><Trash2 size={15} /></button></div></footer></article>)}</div>
+function ProductGrid({ products, edit, configureOutlet, toggle, remove }: { products: Product[]; edit: (value: Product) => void; configureOutlet: (value: Product) => void; toggle: (value: Product) => void; remove: (value: Product) => void }) {
+  if (!products.length) return <div className="manager-empty"><Package size={37} /><h3>Belum ada produk</h3><p>Tambah master produk lalu atur ketersediaannya pada outlet aktif.</p></div>
+  return <div className="manager-grid">{products.map((product) => {
+    const assignment = product.outletAssignment
+    const soldHere = Boolean(product.active && assignment?.assigned && assignment.active && assignment.available)
+    const status = !assignment?.assigned ? 'Belum ditugaskan' : !assignment.active ? 'Nonaktif di outlet' : !assignment.available ? 'Sedang tidak tersedia' : 'Dijual di outlet'
+    return <article className={soldHere ? 'manager-product' : 'manager-product inactive'} key={product.id}>
+      <div className={`manager-product-art ${product.tone}${product.imageUrl ? ' has-photo' : ''}`}>{product.imageUrl ? <img className="manager-product-photo" src={product.imageUrl} alt={product.name} /> : product.emoji}{product.badge && <small>{product.badge}</small>}</div>
+      <div className="manager-product-body"><span>{product.category}</span><h3>{product.name}</h3><p>{product.description}</p><strong>{formatRupiah(assignment?.effectivePrice ?? product.price)}</strong>{assignment?.priceOverride !== undefined && <small className="product-base-price">Harga master {formatRupiah(product.basePrice ?? product.price)}</small>}<i className={`product-outlet-status ${soldHere ? 'available' : ''}`}><Building2 size={13} /> {status}</i>{product.addons.length > 0 && <i className="product-addon-count">+ {product.addons.filter((addon) => addon.active).length} add-on aktif</i>}</div>
+      <footer><label title="Status master produk untuk seluruh outlet"><input type="checkbox" checked={Boolean(product.active)} onChange={() => void toggle(product)} /><i />Master {product.active ? 'aktif' : 'nonaktif'}</label><div><button className="outlet-config-button" onClick={() => configureOutlet(product)} aria-label={`Atur ${product.name} untuk outlet`} title="Atur produk pada outlet"><Building2 size={15} /></button><button onClick={() => edit(product)} aria-label={`Edit ${product.name}`} title="Edit master produk"><Pencil size={15} /></button><button className="danger" onClick={() => void remove(product)} aria-label={`Hapus ${product.name}`} title="Hapus produk"><Trash2 size={15} /></button></div></footer>
+    </article>
+  })}</div>
 }
 
 function CategoryGrid({ categories, edit, toggle, remove }: { categories: MenuCategory[]; edit: (value: MenuCategory) => void; toggle: (value: MenuCategory) => void; remove: (value: MenuCategory) => void }) {
   if (!categories.length) return <div className="manager-empty"><Tags size={37} /><h3>Belum ada kategori</h3><p>Tambah kategori menu sebelum membuat produk.</p></div>
-  return <div className="category-manager-grid">{categories.map((category) => <article className={category.active ? 'category-manager-card' : 'category-manager-card inactive'} key={category.id}><span>{category.emoji}</span><div className="category-manager-info"><small>URUTAN {category.sortOrder}</small><h3>{category.label}</h3><p>{category.productCount || 0} produk memakai kategori ini</p><b>{category.active ? 'Tampil di storefront' : 'Disembunyikan'}</b></div><footer><label><input type="checkbox" checked={category.active} onChange={() => void toggle(category)} /><i />{category.active ? 'Aktif' : 'Nonaktif'}</label><div><button type="button" onClick={() => edit(category)} aria-label={`Edit kategori ${category.label}`}><Pencil size={15} /></button><button type="button" className="danger" onClick={() => void remove(category)} aria-label={`Hapus kategori ${category.label}`}><Trash2 size={15} /></button></div></footer></article>)}</div>
+  return <div className="category-manager-grid">{categories.map((category) => <article className={category.active ? 'category-manager-card' : 'category-manager-card inactive'} key={category.id}>
+    <div className="category-manager-card-top"><span className="category-manager-icon">{category.emoji}</span><div className="category-manager-info"><span className="category-manager-order">Urutan {category.sortOrder}</span><h3>{category.label}</h3><p>{category.productCount || 0} produk terhubung</p></div></div>
+    <div className={category.active ? 'category-manager-visibility visible' : 'category-manager-visibility hidden'}><i /><div><b>{category.active ? 'Tampil di toko' : 'Disembunyikan'}</b><small>{category.active ? 'Pelanggan dapat menemukan kategori ini.' : 'Kategori tidak terlihat oleh pelanggan.'}</small></div></div>
+    <footer><label><input type="checkbox" checked={category.active} onChange={() => void toggle(category)} /><i /><span>{category.active ? 'Aktif' : 'Nonaktif'}</span></label><div><button type="button" onClick={() => edit(category)} aria-label={`Edit kategori ${category.label}`} title="Edit kategori"><Pencil size={15} /></button><button type="button" className="danger" onClick={() => void remove(category)} aria-label={`Hapus kategori ${category.label}`} title="Hapus kategori"><Trash2 size={15} /></button></div></footer>
+  </article>)}</div>
 }
 
 function PromotionGrid({ promotions, edit, remove }: { promotions: Promotion[]; edit: (value: Promotion) => void; remove: (value: Promotion) => void }) {
@@ -184,7 +238,21 @@ function PromotionGrid({ promotions, edit, remove }: { promotions: Promotion[]; 
 
 function CashierGrid({ cashiers, edit, remove }: { cashiers: User[]; edit: (value: User) => void; remove: (value: User) => void }) {
   if (!cashiers.length) return <div className="manager-empty"><UsersRound size={37} /><h3>Belum ada cashier</h3><p>Tambah cashier agar tim outlet bisa memproses pesanan.</p></div>
-  return <div className="cashier-grid">{cashiers.map((cashier) => <article className={cashier.active ? 'cashier-card' : 'cashier-card inactive'} key={cashier.id}><span>{cashier.name.charAt(0).toUpperCase()}</span><div className="cashier-card-info"><small>AKUN CASHIER</small><h3>{cashier.name}</h3><p>{cashier.email}</p><b>{cashier.active ? 'Aktif' : 'Nonaktif'}</b></div><footer><button type="button" onClick={() => edit(cashier)} aria-label={`Edit ${cashier.name}`}><Pencil size={15} /></button><button type="button" className="danger" onClick={() => void remove(cashier)} aria-label={`Hapus ${cashier.name}`}><Trash2 size={15} /></button></footer></article>)}</div>
+  return <div className="cashier-grid">{cashiers.map((cashier) => <article className={cashier.active ? 'cashier-card' : 'cashier-card inactive'} key={cashier.id}>
+    <div className="cashier-card-top"><span className="cashier-card-avatar">{cashier.name.charAt(0).toUpperCase()}</span><div className="cashier-card-info"><span className="cashier-card-role">Akun cashier</span><h3>{cashier.name}</h3><p>{cashier.email}</p><small className="cashier-outlet-name"><Building2 size={12} /> {cashier.outletName || 'Belum ditempatkan'}</small></div></div>
+    <div className={cashier.active ? 'cashier-card-status active' : 'cashier-card-status disabled'}><i /><div><b>{cashier.active ? 'Siap digunakan' : 'Akses dinonaktifkan'}</b><small>{cashier.active ? 'Akun dapat masuk ke stasiun cashier.' : 'Akun tidak dapat login untuk sementara.'}</small></div></div>
+    <footer><button type="button" onClick={() => edit(cashier)} aria-label={`Edit ${cashier.name}`}><Pencil size={15} /> Edit</button><button type="button" className="danger" onClick={() => void remove(cashier)} aria-label={`Hapus ${cashier.name}`}><Trash2 size={15} /> Hapus</button></footer>
+  </article>)}</div>
+}
+
+function OutletGrid({ outlets, edit, remove, select, selectedOutletId }: { outlets: Outlet[]; edit: (value: Outlet) => void; remove: (value: Outlet) => void; select: (id: number) => void; selectedOutletId?: number }) {
+  if (!outlets.length) return <div className="manager-empty"><Building2 size={37} /><h3>Belum ada outlet</h3><p>Tambahkan cabang pertama untuk memulai operasional multi-outlet.</p></div>
+  return <div className="outlet-grid">{outlets.map((outlet) => <article className={outlet.active ? 'outlet-card' : 'outlet-card inactive'} key={outlet.id}>
+    <header><span><Building2 /></span><div><small>{outlet.code}</small><h3>{outlet.name}</h3></div>{outlet.isDefault && <b>Outlet utama</b>}</header>
+    <div className="outlet-address"><MapPin size={16} /><p>{outlet.address || 'Alamat belum diisi'}<small>{outlet.phone || 'Nomor telepon belum diisi'}</small></p></div>
+    <div className={outlet.active ? 'outlet-state active' : 'outlet-state inactive'}><i /><span>{outlet.active ? 'Menerima pesanan' : 'Operasional dinonaktifkan'}</span></div>
+    <footer><button type="button" className={selectedOutletId === outlet.id ? 'selected-outlet' : ''} disabled={!outlet.active || selectedOutletId === outlet.id} onClick={() => select(outlet.id)}>{selectedOutletId === outlet.id ? 'Sedang dipilih' : 'Pilih outlet'}</button><div><button type="button" onClick={() => edit(outlet)}><Pencil size={15} /> Edit</button><button type="button" className="danger" disabled={outlet.isDefault} onClick={() => void remove(outlet)}><Trash2 size={15} /> Hapus</button></div></footer>
+  </article>)}</div>
 }
 
 function RbacModule({ onSaved }: { onSaved: () => void }) {
@@ -248,7 +316,7 @@ function RbacModule({ onSaved }: { onSaved: () => void }) {
       const checked = role === 'admin' && module.key === 'rbac' ? true : matrix.permissions[role][module.key]
       return <td key={`${role}-${module.key}`}><label className={locked ? 'rbac-toggle locked' : 'rbac-toggle'}><input type="checkbox" checked={checked} disabled={locked} onChange={() => toggle(role, module.key)} /><i />{module.key === 'rbac' ? role === 'admin' ? 'Wajib aktif' : 'Admin saja' : matrix.permissions[role][module.key] ? 'Aktif' : 'Nonaktif'}</label></td>
     })}</tr>)}</tbody></table></div>
-    <footer className="rbac-actions"><button type="button" className="manager-refresh" onClick={() => void load()} disabled={saving}><RefreshCw size={15} /> Reset tampilan</button><button type="button" className="manager-add" onClick={() => void save()} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan RBAC'}</button></footer>
+    <div className="rbac-actions"><div className="rbac-actions-copy"><b>Simpan pengaturan akses</b><small>Pastikan setiap role hanya memperoleh modul yang memang dibutuhkan.</small></div><div className="rbac-action-buttons"><button type="button" className="manager-refresh" onClick={() => void load()} disabled={saving}><RefreshCw size={15} /> Reset tampilan</button><button type="button" className="manager-add" onClick={() => void save()} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan RBAC'}</button></div></div>
   </div>
 }
 
@@ -332,7 +400,7 @@ function SettingsEditor({ settings, saved }: { settings: FranchiseSettings; save
   </form>
 }
 
-function CashierEditor({ cashier, close, saved }: { cashier: User | null; close: () => void; saved: () => void }) {
+function CashierEditor({ cashier, outlets, selectedOutletId, close, saved }: { cashier: User | null; outlets: Outlet[]; selectedOutletId?: number; close: () => void; saved: () => void }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -346,9 +414,10 @@ function CashierEditor({ cashier, close, saved }: { cashier: User | null; close:
         email: String(form.get('email') || ''),
         password: String(form.get('password') || ''),
         active: form.get('active') === 'on',
+        outletId: Number(form.get('outletId')),
       }
       if (cashier) await managerApi.updateCashier(cashier.id, { ...payload, password: payload.password || undefined })
-      else await managerApi.createCashier({ name: payload.name, email: payload.email, password: payload.password })
+      else await managerApi.createCashier({ name: payload.name, email: payload.email, password: payload.password, outletId: payload.outletId })
       saved()
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Cashier gagal disimpan.')
@@ -356,7 +425,22 @@ function CashierEditor({ cashier, close, saved }: { cashier: User | null; close:
       setLoading(false)
     }
   }
-  return <div className="manager-modal-bg"><form className="manager-modal cashier-modal" onSubmit={submit}><header><div><small>CASHIER</small><h2>{cashier ? 'Edit cashier' : 'Tambah cashier'}</h2></div><button type="button" onClick={close}><X /></button></header><div className="manager-form"><div className="cashier-modal-intro"><span><UserPlus /></span><div><b>{cashier ? 'Perbarui akun operasional' : 'Buat akun operasional'}</b><p>{cashier ? 'Ubah identitas, password, atau akses login cashier.' : 'Akun ini bisa login sebagai cashier dan mengelola status pesanan di stasiun cashier.'}</p></div></div><label>Nama cashier<input name="name" defaultValue={cashier?.name} placeholder="Contoh: Kasir Outlet 1" required autoFocus /></label><label>Email cashier<input name="email" type="email" defaultValue={cashier?.email} placeholder="cashier.outlet@email.com" required /></label><label>{cashier ? 'Password baru (opsional)' : 'Password awal'}<input name="password" type="password" placeholder={cashier ? 'Kosongkan jika tidak diubah' : 'Minimal 8 karakter'} minLength={8} required={!cashier} /></label>{cashier && <div className="manager-checks"><label><input type="checkbox" name="active" defaultChecked={cashier.active} /> Akun aktif</label></div>}{error && <p className="manager-form-error">{error}</p>}</div><footer><button type="button" onClick={close}>Batal</button><button className="primary" disabled={loading}>{loading ? 'Menyimpan...' : cashier ? 'Simpan perubahan' : 'Buat cashier'}</button></footer></form></div>
+  return <div className="manager-modal-bg"><form className="manager-modal cashier-modal" onSubmit={submit}><header><div><small>CASHIER</small><h2>{cashier ? 'Edit cashier' : 'Tambah cashier'}</h2></div><button type="button" onClick={close}><X /></button></header><div className="manager-form"><div className="cashier-modal-intro"><span><UserPlus /></span><div><b>{cashier ? 'Perbarui akun operasional' : 'Buat akun operasional'}</b><p>{cashier ? 'Ubah identitas, outlet, password, atau akses login cashier.' : 'Akun ini hanya melihat dan memproses pesanan dari outlet yang dipilih.'}</p></div></div><label>Outlet penempatan<select name="outletId" defaultValue={cashier?.outletId || selectedOutletId} required>{outlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label><label>Nama cashier<input name="name" defaultValue={cashier?.name} placeholder="Contoh: Kasir Outlet 1" required autoFocus /></label><label>Email cashier<input name="email" type="email" defaultValue={cashier?.email} placeholder="cashier.outlet@email.com" required /></label><label>{cashier ? 'Password baru (opsional)' : 'Password awal'}<input name="password" type="password" placeholder={cashier ? 'Kosongkan jika tidak diubah' : 'Minimal 8 karakter'} minLength={8} required={!cashier} /></label>{cashier && <div className="manager-checks"><label><input type="checkbox" name="active" defaultChecked={cashier.active} /> Akun aktif</label></div>}{error && <p className="manager-form-error">{error}</p>}</div><footer><button type="button" onClick={close}>Batal</button><button className="primary" disabled={loading}>{loading ? 'Menyimpan...' : cashier ? 'Simpan perubahan' : 'Buat cashier'}</button></footer></form></div>
+}
+
+function OutletEditor({ outlet, close, saved }: { outlet: Outlet | null; close: () => void; saved: () => void }) {
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setLoading(true); setError('')
+    const form = new FormData(event.currentTarget)
+    try {
+      await managerApi.saveOutlet({ id: outlet?.id, code: String(form.get('code') || ''), name: String(form.get('name') || ''), address: String(form.get('address') || ''), phone: String(form.get('phone') || ''), active: form.get('active') === 'on', isDefault: form.get('isDefault') === 'on' })
+      saved()
+    } catch (saveError) { setError(saveError instanceof Error ? saveError.message : 'Outlet gagal disimpan.') }
+    finally { setLoading(false) }
+  }
+  return <div className="manager-modal-bg"><form className="manager-modal outlet-modal" onSubmit={submit}><header><div><small>OUTLET</small><h2>{outlet ? 'Edit outlet' : 'Tambah outlet'}</h2></div><button type="button" onClick={close}><X /></button></header><div className="manager-form"><div className="cashier-modal-intro"><span><Building2 /></span><div><b>Identitas cabang</b><p>Pesanan, cashier, stok, dan laporan operasional akan dipisahkan berdasarkan outlet.</p></div></div><div className="manager-form-row"><label>Kode outlet<input name="code" defaultValue={outlet?.code} placeholder="Contoh: JKT-01" required /></label><label>Nama outlet<input name="name" defaultValue={outlet?.name} placeholder="Outlet Jakarta Pusat" required /></label></div><label>Alamat<textarea name="address" defaultValue={outlet?.address} rows={3} placeholder="Alamat lengkap outlet" /></label><label>Nomor telepon<input name="phone" defaultValue={outlet?.phone} placeholder="021... atau 628..." /></label><div className="manager-checks"><label><input type="checkbox" name="active" defaultChecked={outlet?.active ?? true} /> Outlet aktif</label><label><input type="checkbox" name="isDefault" defaultChecked={outlet?.isDefault} /> Jadikan outlet utama</label></div>{error && <p className="manager-form-error">{error}</p>}</div><footer><button type="button" onClick={close}>Batal</button><button className="primary" disabled={loading}>{loading ? 'Menyimpan...' : 'Simpan outlet'}</button></footer></form></div>
 }
 
 function CategoryEditor({ category, close, saved }: { category: MenuCategory | null; close: () => void; saved: () => void }) {
@@ -385,6 +469,48 @@ function CategoryEditor({ category, close, saved }: { category: MenuCategory | n
   }
 
   return <div className="manager-modal-bg"><form className="manager-modal category-modal" onSubmit={submit}><header><div><small>KATEGORI MENU</small><h2>{category ? 'Edit kategori' : 'Tambah kategori'}</h2></div><button type="button" onClick={close}><X /></button></header><div className="manager-form"><div className="category-modal-intro"><span>{category?.emoji || '🍽️'}</span><div><b>Kategori tampil sebagai filter menu pelanggan</b><p>Gunakan nama yang fleksibel untuk franchise apa pun, misalnya Paket Hemat, Minuman, Dessert, Merchandise, atau kategori lain.</p></div></div><div className="manager-form-row category-form-row"><label>Icon/emoji<input name="emoji" defaultValue={category?.emoji || '🍽️'} maxLength={12} required /></label><label>Nama kategori<input name="label" defaultValue={category?.label} placeholder="Contoh: Dessert" minLength={2} maxLength={40} required autoFocus /></label></div><label>Urutan tampil<input name="sortOrder" type="number" defaultValue={category?.sortOrder ?? 100} min="0" max="9999" required /><small>Angka lebih kecil tampil lebih dulu di storefront.</small></label><div className="manager-checks"><label><input type="checkbox" name="active" defaultChecked={category?.active ?? true} /> Tampilkan kategori di storefront</label></div>{category && (category.productCount || 0) > 0 && <p className="manager-form-hint">Kategori ini dipakai oleh {category.productCount} produk. Jika nama kategori diubah, produk terkait ikut diperbarui otomatis.</p>}{error && <p className="manager-form-error">{error}</p>}</div><footer><button type="button" onClick={close}>Batal</button><button className="primary" disabled={loading}>{loading ? 'Menyimpan...' : 'Simpan kategori'}</button></footer></form></div>
+}
+
+function ProductOutletEditor({ product, outletName, close, saved }: { product: Product; outletName: string; close: () => void; saved: () => void }) {
+  const assignment = product.outletAssignment
+  const [assigned, setAssigned] = useState(Boolean(assignment?.assigned))
+  const [priceOverride, setPriceOverride] = useState(assignment?.priceOverride === undefined ? '' : String(assignment.priceOverride))
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setLoading(true)
+    setError('')
+    const form = new FormData(event.currentTarget)
+    try {
+      const priceValue = priceOverride.trim()
+      await managerApi.setProductOutletAssignment(product.id, {
+        assigned,
+        active: assigned && form.get('outletActive') === 'on',
+        available: assigned && form.get('available') === 'on',
+        priceOverride: assigned && priceValue !== '' ? Number(priceValue) : undefined,
+      })
+      saved()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Pengaturan produk outlet gagal disimpan.')
+    } finally { setLoading(false) }
+  }
+
+  return <div className="manager-modal-bg"><form className="manager-modal product-outlet-modal" onSubmit={submit}>
+    <header><div><small>PRODUK PER OUTLET</small><h2>{product.name}</h2></div><button type="button" onClick={close}><X /></button></header>
+    <div className="manager-form">
+      <div className="product-outlet-intro"><span><Building2 /></span><div><b>{outletName}</b><p>Pengaturan ini hanya berlaku untuk outlet aktif. Data master produk dan kategori tetap dipakai bersama oleh seluruh outlet.</p></div></div>
+      <label className="product-outlet-assigned"><input type="checkbox" checked={assigned} onChange={(event) => setAssigned(event.target.checked)} /> Jual produk ini di {outletName}</label>
+      <div className="manager-form-row">
+        <label>Harga khusus outlet<input type="number" name="priceOverride" value={priceOverride} onChange={(event) => setPriceOverride(event.target.value)} min="0" max="100000000" disabled={!assigned} placeholder={String(product.basePrice ?? product.price)} /><small>Kosongkan untuk memakai harga master {formatRupiah(product.basePrice ?? product.price)}.</small></label>
+        <div className="product-outlet-flags"><label><input type="checkbox" name="outletActive" defaultChecked={assignment?.active ?? true} disabled={!assigned} /> Konfigurasi outlet aktif</label><label><input type="checkbox" name="available" defaultChecked={assignment?.available ?? true} disabled={!assigned} /> Produk tersedia dijual</label></div>
+      </div>
+      {!assigned && <p className="manager-form-hint">Produk tidak akan tampil pada katalog {outletName} dan tidak dapat dipesan dari outlet tersebut.</p>}
+      {error && <p className="manager-form-error">{error}</p>}
+    </div>
+    <footer><button type="button" onClick={close}>Batal</button><button className="primary" disabled={loading}>{loading ? 'Menyimpan...' : 'Simpan pengaturan outlet'}</button></footer>
+  </form></div>
 }
 
 function ProductEditor({ product, categories, close, saved }: { product: Product | null; categories: MenuCategory[]; close: () => void; saved: () => void }) {

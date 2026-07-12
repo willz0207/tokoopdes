@@ -7,9 +7,9 @@ from docx.oxml.ns import qn
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 CHECKS = {
-    "FSD.docx": ("user guide", "docs/user_guide.docx", "report operasional", "laba rugi", "ekspor csv", "rbac", "hosting publik netlify"),
+    "FSD.docx": ("user guide", "docs/user_guide.docx", "report operasional", "laba rugi", "ekspor csv", "rbac", "mode development lokal", "hosting publik opsional"),
     "TSD.docx": ("user guide", "docs/user_guide.docx", "financial_entries", "payment_method", "src/reportsmodule.tsx", "role_permissions", "api/admin/rbac", "netlify.toml", "postgresql"),
-    "USER_GUIDE.docx": ("panduan pelanggan", "panduan cashier", "panduan manager", "panduan admin", "inventory", "add-on", "report operasional", "catat transaksi", "ekspor csv", "pemecahan masalah", "rbac", "versi netlify"),
+    "USER_GUIDE.docx": ("panduan pelanggan", "panduan cashier", "panduan manager", "panduan admin", "inventory", "add-on", "report operasional", "catat transaksi", "ekspor csv", "pemecahan masalah", "rbac", "hosting publik"),
 }
 
 

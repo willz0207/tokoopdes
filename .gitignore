@@ -14,3 +14,18 @@ __pycache__/
 
 # Local Netlify folder
 .netlify
+
+# Temporary and log files
+*-temp.js
+*-temp.txt
+error-log-temp.txt
+.codex_spreadsheet_work/
+public/logout.txt
+*.ndjson
+*.log
+
+# Playwright/test outputs
+outputs/playwright-artifacts/
+outputs/playwright-evidence/
+outputs/playwright-report/
+outputs/screenshots/

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, KeyRound, LogOut, Pencil, ReceiptText, Store, UserRound, X } from 'lucide-react'
 import { authApi } from './api'
+import { homePathForRole } from './roleRoutes'
 import type { User } from './types'
 import './profile-menu.css'
 
@@ -58,7 +59,7 @@ function ProfileMenu({ user, onLogout, onUserUpdate }: ProfileMenuProps) {
     finally { setLoading(false) }
   }
 
-  const dashboardLink = displayUser.role === 'customer' ? '/orders' : displayUser.role === 'cashier' ? '/cashier' : '/manager'
+  const dashboardLink = displayUser.role === 'customer' ? '/orders' : homePathForRole(displayUser.role)
   const dashboardLabel = displayUser.role === 'customer' ? 'Pesanan saya' : displayUser.role === 'cashier' ? 'Stasiun cashier' : displayUser.role === 'admin' ? 'Dashboard admin' : 'Dashboard manager'
 
   return <>

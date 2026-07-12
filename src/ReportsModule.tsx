@@ -62,8 +62,10 @@ function ReportsModule() {
       ...data.operational.customers.map((row) => [row.name, row.email, row.orderCount, row.totalSpent, row.lastOrder]),
       [],
       ['LABA RUGI'],
-      ['Pendapatan', data.financial.profitLoss.revenue],
-      ['Biaya operasional', data.financial.profitLoss.expenses],
+      ['Pendapatan penjualan', data.financial.profitLoss.revenue],
+      ['Harga Pokok Penjualan (HPP)', -data.financial.profitLoss.cogs],
+      ['Laba kotor', data.financial.profitLoss.grossProfit],
+      ['Biaya operasional', -data.financial.profitLoss.expenses],
       ['Laba bersih', data.financial.profitLoss.netProfit],
       [],
       ['ARUS KAS'],
@@ -139,7 +141,7 @@ function FinancialReport({ data, remove }: { data: ReportData; remove: (id: numb
       <ReportCard label="Perubahan modal" value={formatRupiah(equityChanges.netChange)} detail={`Modal masuk ${formatRupiah(equityChanges.capitalIn)}`} tone="purple" />
     </div>
     <div className="finance-grid">
-      <FinanceStatement title="Laporan laba rugi" rows={[['Pendapatan penjualan', profitLoss.revenue], ['Biaya operasional', -profitLoss.expenses]]} total={['Laba bersih', profitLoss.netProfit]} />
+      <FinanceStatement title="Laporan laba rugi" rows={[['Pendapatan penjualan', profitLoss.revenue], ['Harga Pokok Penjualan (HPP)', -profitLoss.cogs], ['Laba kotor', profitLoss.grossProfit], ['Biaya operasional', -profitLoss.expenses]]} total={['Laba bersih', profitLoss.netProfit]} />
       <FinanceStatement title="Laporan arus kas" rows={[['Penjualan masuk', cashFlow.salesInflow], ['Modal masuk', cashFlow.capitalIn], ['Biaya keluar', -cashFlow.expensesOutflow], ['Modal keluar', -cashFlow.capitalOut]]} total={['Arus kas bersih', cashFlow.netCashFlow]} />
       <FinanceStatement title="Laporan neraca" rows={[['Kas / setara kas', balanceSheet.cashBalance], ['Nilai persediaan', balanceSheet.inventoryValue], ['Liabilitas tercatat', -balanceSheet.liabilities]]} total={['Ekuitas', balanceSheet.equity]} />
       <FinanceStatement title="Perubahan modal" rows={[['Setoran modal', equityChanges.capitalIn], ['Laba ditahan', equityChanges.retainedEarnings], ['Penarikan modal', -equityChanges.capitalOut]]} total={['Perubahan bersih', equityChanges.netChange]} />

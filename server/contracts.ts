@@ -8,6 +8,7 @@ export type PermissionModule =
   | 'cashiers'
   | 'inventory'
   | 'reports'
+  | 'outlets'
   | 'settings'
   | 'rbac'
 
@@ -29,6 +30,18 @@ export interface UserRecord {
   email: string
   role: UserRole
   active: boolean
+  outletId?: number
+  outletName?: string
+}
+
+export interface OutletRecord {
+  id: number
+  code: string
+  name: string
+  address: string
+  phone: string
+  active: boolean
+  isDefault: boolean
 }
 
 export interface FranchiseSettingsRecord {
@@ -90,6 +103,7 @@ export interface ProductRecord {
   name: string
   description: string
   price: number
+  basePrice?: number
   originalPrice?: number
   category: string
   emoji: string
@@ -99,9 +113,26 @@ export interface ProductRecord {
   spicy: boolean
   active: boolean
   addons: ProductAddonRecord[]
+  outletAssignment?: ProductOutletAssignmentRecord
 }
 
 export type ProductInput = Omit<ProductRecord, 'id' | 'addons'> & { addons: ProductAddonInput[] }
+
+export interface ProductOutletAssignmentRecord {
+  outletId: number
+  assigned: boolean
+  active: boolean
+  available: boolean
+  priceOverride?: number
+  effectivePrice: number
+}
+
+export interface ProductOutletAssignmentInput {
+  assigned: boolean
+  active: boolean
+  available: boolean
+  priceOverride?: number
+}
 
 export interface PromotionRecord {
   id: number
@@ -117,10 +148,12 @@ export interface PromotionRecord {
 }
 
 export type PaymentMethod = 'cash' | 'qris' | 'bank_transfer' | 'ewallet'
+export type PaymentStatus = 'unpaid' | 'pending' | 'paid' | 'failed' | 'expired' | 'refunded'
 
 export interface NewOrderInput {
   customerId: number
   customerName: string
+  outletId: number
   phone: string
   address?: string
   note?: string
@@ -133,12 +166,17 @@ export interface NewOrderInput {
 export interface OrderRecord {
   id: string
   customerId?: number
+  outletId: number
+  outletName: string
   customerName: string
   phone: string
   address?: string
   note?: string
   deliveryMethod: 'delivery' | 'pickup'
   paymentMethod: PaymentMethod
+  paymentStatus: PaymentStatus
+  paymentProvider?: string
+  paymentRedirectUrl?: string
   status: string
   subtotal: number
   discountAmount: number
@@ -155,10 +193,19 @@ export interface OrderRecord {
   }>
 }
 
+export interface PaymentSessionRecord {
+  orderId: string
+  provider: 'cash' | 'midtrans' | 'simulator'
+  status: PaymentStatus
+  redirectUrl?: string
+  token?: string
+}
+
 export type StockMovementType = 'in' | 'out' | 'adjustment_add' | 'adjustment_subtract'
 
 export interface InventoryItemRecord {
   id: number
+  outletId: number
   name: string
   sku: string
   unit: string
