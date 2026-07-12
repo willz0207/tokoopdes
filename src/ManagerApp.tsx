@@ -7,6 +7,7 @@ import { readProductImageFile } from './productImage'
 import { homePathForRole } from './roleRoutes'
 import type { FranchiseSettings, MenuCategory, Outlet, PermissionModule, PermissionRole, Product, ProductAddonInput, Promotion, RolePermissionMatrix, User } from './types'
 import ProfileMenu from './ProfileMenu'
+import { OutletSelector } from './OutletSelector'
 import InventoryModule from './InventoryModule'
 import ReportsModule from './ReportsModule'
 import './manager.css'
@@ -190,7 +191,7 @@ function ManagerApp() {
       {canAccess('cashier_station') && <div className="manager-side-bottom"><a href="/cashier"><ShoppingBag size={17} /> Stasiun cashier <ExternalLink size={13} /></a></div>}
     </aside>
     <main className="manager-main">
-      <header className="manager-header"><div><span>{user?.role === 'admin' ? 'ADMIN DASHBOARD' : 'MANAGER DASHBOARD'}</span><h1>{pageTitle}</h1></div><div className="manager-header-actions"><label className="outlet-switcher"><Building2 size={16} /><span><small>OUTLET AKTIF</small><select value={selectedOutletId || ''} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.filter((outlet) => outlet.active).map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></span></label>{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div></header>
+      <header className="manager-header"><div><span>{user?.role === 'admin' ? 'ADMIN DASHBOARD' : 'MANAGER DASHBOARD'}</span><h1>{pageTitle}</h1></div><div className="manager-header-actions"><OutletSelector outlets={outlets} selectedOutletId={selectedOutletId} onChange={changeOutlet} variant="manager" />{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div></header>
       <div className="manager-content">
         {error && <div className="manager-error">{error}<button onClick={() => setError('')}><X size={15} /></button></div>}
         <section className="manager-summary"><article><span className="red"><Package /></span><div><small>Master produk</small><b>{products.length}</b></div></article><article><span className="green"><Check /></span><div><small>Dijual di outlet</small><b>{products.filter((item) => item.active && item.outletAssignment?.assigned && item.outletAssignment.active && item.outletAssignment.available).length}</b></div></article><article><span className="orange"><BadgePercent /></span><div><small>Promosi aktif</small><b>{promotions.filter((item) => item.active).length}</b></div></article><article><span className="blue"><UsersRound /></span><div><small>Akun cashier</small><b>{cashiers.length}</b></div></article></section>

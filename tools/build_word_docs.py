@@ -576,6 +576,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan assignment produk per outlet, harga khusus, status aktif/tersedia per cabang, filter katalog outlet, dan validasi checkout berbasis outlet_products, sementara kategori dan master produk tetap global."),
@@ -953,6 +954,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan migrasi 0003_outlet_products.sql, kontrak assignment, query harga efektif, endpoint assignment per outlet, filter kategori/katalog storefront, validasi checkout server-side, dan UI pengaturan produk pada outlet aktif."),
@@ -1328,6 +1330,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan panduan master produk global dan assignment per outlet, termasuk harga khusus, status aktif/tersedia, dampak pada katalog, serta pemecahan masalah produk outlet."),

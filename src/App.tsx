@@ -20,6 +20,7 @@ import {
   Building2,
 } from 'lucide-react'
 import { storefrontApi } from './api'
+import { OutletSelector } from './OutletSelector'
 import { defaultCategories, formatRupiah, products as defaultProducts } from './data'
 import { useFranchiseSettings } from './franchise'
 import type { CartItem, FranchiseSettings, MenuCategory, Outlet, PaymentMethod, Product, Promotion, User } from './types'
@@ -216,7 +217,12 @@ function App() {
           </nav>
 
           <div className="header-actions">
-            <label className="store-outlet-select"><Building2 size={17} /><select aria-label="Pilih outlet" value={selectedOutletId || ''} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.map((outlet) => <option value={outlet.id} key={outlet.id}>{outlet.name}</option>)}</select></label>
+            <OutletSelector
+              outlets={outlets}
+              selectedOutletId={selectedOutletId}
+              onChange={changeOutlet}
+              variant="storefront"
+            />
             {currentUser ? (
               <ProfileMenu user={currentUser} onLogout={logout} onUserUpdate={setCurrentUser} />
             ) : (

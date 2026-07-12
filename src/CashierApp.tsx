@@ -6,6 +6,7 @@ import { useFranchiseSettings } from './franchise'
 import { homePathForRole } from './roleRoutes'
 import type { DashboardStats, Order, OrderStatus, Outlet, User } from './types'
 import ProfileMenu from './ProfileMenu'
+import { OutletSelector } from './OutletSelector'
 import './cashier.css'
 
 const statuses: Array<{ value: OrderStatus; label: string }> = [
@@ -101,7 +102,7 @@ function CashierApp() {
     <div className="cashier-shell">
       <header className="cashier-header">
         <a className="cashier-brand" href="/cashier"><span>{settings.shortName}</span><div><b>Cashier Station</b><small>{settings.businessName}</small></div></a>
-        <div className="cashier-user">{outlets.length > 0 && <label className="cashier-outlet-switch"><Building2 size={15} /><select aria-label="Outlet aktif" value={selectedOutletId || ''} disabled={user?.role === 'cashier'} onChange={(event) => changeOutlet(Number(event.target.value))}>{outlets.map((outlet) => <option key={outlet.id} value={outlet.id}>{outlet.name}</option>)}</select></label>}{user && ['manager', 'admin'].includes(user.role) && <a className="manager-return" href={homePathForRole(user.role)}>Dashboard {user.role}</a>}{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div>
+        <div className="cashier-user">{outlets.length > 0 && <OutletSelector outlets={outlets} selectedOutletId={selectedOutletId} disabled={user?.role === 'cashier'} onChange={changeOutlet} variant="cashier" />}{user && ['manager', 'admin'].includes(user.role) && <a className="manager-return" href={homePathForRole(user.role)}>Dashboard {user.role}</a>}{user && <ProfileMenu user={user} onLogout={logout} onUserUpdate={setUser} />}</div>
       </header>
 
       <main className="cashier-main">
