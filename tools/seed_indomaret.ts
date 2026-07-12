@@ -96,6 +96,47 @@ async function run() {
       }
     }
 
+    console.log('Inserting inventory items for each outlet and linking them to products...')
+    const inventoryData = [
+      { name: 'Indomie Goreng Spesial', sku: 'IDM-IND-001', unit: 'bungkus', stock: 120, min: 10, cost: 2800 },
+      { name: 'Pop Mie Goreng Pedas', sku: 'IDM-POP-002', unit: 'cup', stock: 80, min: 10, cost: 4200 },
+      { name: 'Sari Roti Roti Tawar', sku: 'IDM-ROT-003', unit: 'bungkus', stock: 30, min: 5, cost: 11000 },
+      { name: 'Sari Roti Kasur Cokelat', sku: 'IDM-ROT-004', unit: 'bungkus', stock: 25, min: 5, cost: 9500 },
+      { name: 'Chitato Sapi Panggang 68g', sku: 'IDM-CHI-005', unit: 'bungkus', stock: 60, min: 10, cost: 8500 },
+      { name: 'Oreo Vanilla 119g', sku: 'IDM-ORE-006', unit: 'bungkus', stock: 50, min: 10, cost: 7500 },
+      { name: 'Beng-Beng Share It 9.5g x 10', sku: 'IDM-BEN-007', unit: 'pack', stock: 40, min: 5, cost: 10500 },
+      { name: 'Aqua Air Mineral 600ml', sku: 'IDM-AQU-008', unit: 'botol', stock: 240, min: 24, cost: 1800 },
+      { name: 'Teh Botol Sosro Kotak 250ml', sku: 'IDM-SOS-009', unit: 'kotak', stock: 120, min: 12, cost: 2200 },
+      { name: 'Pocari Sweat Can 330ml', sku: 'IDM-POC-010', unit: 'kaleng', stock: 96, min: 12, cost: 6500 },
+      { name: 'Kopi Golda Cappuccino 200ml', sku: 'IDM-GOL-011', unit: 'botol', stock: 150, min: 15, cost: 2100 },
+      { name: 'Wall\'s Magnum Classic 80ml', sku: 'IDM-MAG-012', unit: 'pcs', stock: 40, min: 8, cost: 11500 },
+      { name: 'Glico Wings Haku Matcha', sku: 'IDM-HAK-013', unit: 'pcs', stock: 50, min: 8, cost: 5800 },
+      { name: 'Biore Body Wash Cool 450ml', sku: 'IDM-BIO-014', unit: 'pouch', stock: 30, min: 5, cost: 19500 },
+      { name: 'Pepsodent Pencegah Gigi 190g', sku: 'IDM-PEP-015', unit: 'tubes', stock: 45, min: 5, cost: 9000 },
+      { name: 'Tissue Indomaret 220s', sku: 'IDM-TIS-016', unit: 'pack', stock: 60, min: 10, cost: 10500 }
+    ]
+
+    for (let i = 0; i < productIds.length; i++) {
+      const pid = productIds[i]
+      const item = inventoryData[i]
+      if (item) {
+        for (const oid of outletIds) {
+          const result = await client.query(`
+            INSERT INTO inventory_items (name, sku, unit, current_stock, minimum_stock, unit_cost, linked_product_id, usage_per_sale, active, outlet_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 1.0, TRUE, $8)
+            RETURNING id
+          `, [item.name, item.sku, item.unit, item.stock, item.min, item.cost, pid, oid])
+          
+          const itemId = result.rows[0].id
+          
+          await client.query(`
+            INSERT INTO stock_movements (item_id, type, quantity, stock_before, stock_after, note)
+            VALUES ($1, 'in', $2, 0, $3, 'Initial inventory seed')
+          `, [itemId, item.stock, item.stock])
+        }
+      }
+    }
+
     console.log('Inserting promotion...')
     await client.query(`
       INSERT INTO promotions (title, description, code, discount_type, discount_value, min_order, active)
