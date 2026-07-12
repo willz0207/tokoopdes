@@ -93,7 +93,46 @@ if (!adminPassword || !jwtSecret) {
   throw new Error('APP_ADMIN_PASSWORD dan APP_JWT_SECRET wajib diisi untuk mode production.')
 }
 
-app.use(helmet({ contentSecurityPolicy: false }))
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://app.sandbox.midtrans.com", "https://app.midtrans.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "https:*", "http:*"],
+      frameSrc: ["'self'", "https://app.sandbox.midtrans.com", "https://app.midtrans.com"],
+      connectSrc: ["'self'", "https://app.sandbox.midtrans.com", "https://app.midtrans.com"],
+    }
+  }
+}))
+
+const isStrongPassword = (password: string): boolean => {
+  return password.length >= 8 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /[0-9]/.test(password) &&
+    /[!@#$%^&*(),.?":{}|<>_+\-=\[\]\\\/]/.test(password)
+}
+
+const rateLimits = new Map<string, { count: number; resetTime: number }>()
+const rateLimiter = (limit: number, windowMs: number) => (req: Request, res: Response, next: NextFunction) => {
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').split(',')[0].trim()
+  const now = Date.now()
+  const limitInfo = rateLimits.get(ip) || { count: 0, resetTime: now + windowMs }
+  if (now > limitInfo.resetTime) {
+    limitInfo.count = 1
+    limitInfo.resetTime = now + windowMs
+  } else {
+    limitInfo.count++
+  }
+  rateLimits.set(ip, limitInfo)
+  if (limitInfo.count > limit) {
+    const remainingTime = Math.ceil((limitInfo.resetTime - now) / 1000)
+    return res.status(429).json({ message: `Terlalu banyak percobaan akses. Silakan coba lagi dalam ${remainingTime} detik.` })
+  }
+  next()
+}
 app.use(express.json({ limit: '6mb' }))
 
 type AppRole = UserRole
@@ -446,14 +485,14 @@ app.post('/api/payments/midtrans/notification', async (request, response) => {
   response.json(payment || { received: true })
 })
 
-app.post('/api/auth/register', async (request, response) => {
+app.post('/api/auth/register', rateLimiter(5, 15 * 60 * 1000), async (request, response) => {
   try {
     const name = String(request.body?.name || '').trim()
     const email = String(request.body?.email || '').trim().toLowerCase()
     const password = String(request.body?.password || '')
     if (name.length < 2) throw new Error('Nama minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email tidak valid.')
-    if (password.length < 8) throw new Error('Password minimal 8 karakter.')
+    if (!isStrongPassword(password)) throw new Error('Kata sandi harus minimal 8 karakter dan mengandung kombinasi huruf besar, huruf kecil, angka, serta karakter khusus (simbol).')
     const user = await createUser({ name, email, password, role: 'customer' })
     const token = jwt.sign({ role: user.role, userId: user.id, name: user.name, email: user.email, outletId: user.outletId }, jwtSecret, { expiresIn: '7d' })
     response.status(201).json({ token, user })
@@ -465,7 +504,7 @@ app.post('/api/auth/register', async (request, response) => {
   }
 })
 
-app.post('/api/auth/login', async (request, response) => {
+app.post('/api/auth/login', rateLimiter(5, 15 * 60 * 1000), async (request, response) => {
   const email = String(request.body?.email || '').trim().toLowerCase()
   const password = String(request.body?.password || '')
   const role = String(request.body?.role || '') as UserRole
@@ -518,13 +557,13 @@ app.put('/api/profile', requireRoles('customer', 'cashier', 'manager', 'admin'),
 app.put('/api/profile/password', requireRoles('customer', 'cashier', 'manager', 'admin'), async (request, response) => {
   const currentPassword = String(request.body?.currentPassword || '')
   const newPassword = String(request.body?.newPassword || '')
-  if (newPassword.length < 8) return response.status(400).json({ message: 'Password baru minimal 8 karakter.' })
+  if (!isStrongPassword(newPassword)) return response.status(400).json({ message: 'Kata sandi harus minimal 8 karakter dan mengandung kombinasi huruf besar, huruf kecil, angka, serta karakter khusus (simbol).' })
   const changed = await changeUserPassword((request as AuthenticatedRequest).auth!.userId!, currentPassword, newPassword)
   if (!changed) return response.status(400).json({ message: 'Password saat ini salah.' })
   response.json({ changed: true })
 })
 
-app.post('/api/auth/admin', (request, response) => {
+app.post('/api/auth/admin', rateLimiter(5, 15 * 60 * 1000), (request, response) => {
   if (typeof request.body?.password !== 'string' || request.body.password !== adminPassword) {
     return response.status(401).json({ message: 'Password admin salah.' })
   }
@@ -698,7 +737,7 @@ app.post('/api/manager/cashiers', ...requireModuleAccess('cashiers', 'manager', 
     const outletId = Number(request.body?.outletId || await resolveOutletId(request))
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
-    if (password.length < 8) throw new Error('Password cashier minimal 8 karakter.')
+    if (!isStrongPassword(password)) throw new Error('Kata sandi harus minimal 8 karakter dan mengandung kombinasi huruf besar, huruf kecil, angka, serta karakter khusus (simbol).')
     if (!Number.isInteger(outletId) || !(await getOutletById(outletId))) throw new Error('Outlet cashier tidak valid.')
     response.status(201).json(await createUser({ name, email, password, role: 'cashier', outletId }))
   } catch (error) {
@@ -720,7 +759,7 @@ app.put('/api/manager/cashiers/:id', ...requireModuleAccess('cashiers', 'manager
     if (!Number.isInteger(id) || id < 1) throw new Error('ID cashier tidak valid.')
     if (name.length < 2) throw new Error('Nama cashier minimal 2 karakter.')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Alamat email cashier tidak valid.')
-    if (password && password.length < 8) throw new Error('Password baru minimal 8 karakter.')
+    if (password && !isStrongPassword(password)) throw new Error('Kata sandi harus minimal 8 karakter dan mengandung kombinasi huruf besar, huruf kecil, angka, serta karakter khusus (simbol).')
     if (!Number.isInteger(outletId) || !(await getOutletById(outletId))) throw new Error('Outlet cashier tidak valid.')
     const cashier = await updateCashier(id, { name, email, password: password || undefined, active, outletId })
     if (!cashier) return response.status(404).json({ message: 'Cashier tidak ditemukan.' })

@@ -75,8 +75,11 @@ Akses ke modul operasional diatur melalui RBAC. Tabel berikut menunjukkan pengat
 
 1. Tekan tombol masuk pada halaman toko.
 2. Pilih role **Pelanggan**.
-3. Untuk akun baru, pilih **Daftar sekarang** dan isi nama, email, serta password minimal 8 karakter.
+3. Untuk akun baru, pilih **Daftar sekarang** dan isi nama, email, serta password minimal 8 karakter yang mengandung kombinasi huruf besar, huruf kecil, angka, dan simbol khusus.
 4. Untuk akun lama, isi email dan password lalu tekan **Masuk**.
+
+> [!NOTE]
+> Demi keamanan, kata sandi wajib terdiri dari minimal **8 karakter** dan mengandung kombinasi **huruf besar, huruf kecil, angka, serta simbol khusus/karakter khusus**. Upaya masuk (login/register) dibatasi maksimal **5 kali percobaan per 15 menit** per IP. Jika terblokir, tunggu 15 menit sebelum mencoba kembali.
 
 ### Memilih produk dan add-on
 
@@ -183,7 +186,7 @@ Semua tab menggunakan pola tampilan yang sama. Judul dan tombol utama berada di 
 1. Buka tab **Cashier**.
 2. Setiap kartu menampilkan inisial avatar, nama, email, dan keterangan apakah akun siap digunakan atau aksesnya sedang dinonaktifkan.
 3. Tekan **Tambah cashier** untuk membuat akun baru.
-4. Pilih outlet penempatan, lalu isi nama, email, dan password awal minimal 8 karakter.
+4. Pilih outlet penempatan, lalu isi nama, email, dan password awal minimal 8 karakter yang mengandung kombinasi huruf besar, huruf kecil, angka, dan simbol khusus.
 5. Tekan **Edit** untuk mengubah outlet, identitas, password, atau status login.
 6. Tekan **Hapus** untuk menghapus akun. Akun nonaktif atau terhapus tidak dapat menggunakan sesi lama.
 
@@ -352,6 +355,7 @@ Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib 
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-12 | Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet. |
 | 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan panduan master produk global dan assignment per outlet, termasuk harga khusus, status aktif/tersedia, dampak pada katalog, serta pemecahan masalah produk outlet. |
 | 2026-07-12 | Menambahkan panduan tampilan seragam seluruh modul Manager/Admin, termasuk letak tindakan, pola panel terang, dan penyesuaian navigasi pada layar ponsel. |

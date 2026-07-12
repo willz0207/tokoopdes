@@ -163,6 +163,14 @@ Setelah disimpan, perubahan tersebut langsung diterapkan pada halaman toko, logi
 - Data laporan dapat diekspor ke CSV untuk rekonsiliasi dan pembukuan lanjutan.
 - Neraca bersifat manajerial dasar dan belum mencakup utang, piutang, depresiasi, atau pajak.
 
+### Keamanan sistem
+
+Sistem menerapkan proteksi tambahan untuk menjamin keamanan operasional franchise:
+
+- **Verifikasi Kekuatan Kata Sandi**: Pengguna (pelanggan maupun kasir yang didaftarkan manager) wajib menggunakan kata sandi dengan panjang minimal 8 karakter yang mengandung huruf besar, huruf kecil, angka, dan simbol khusus (seperti `@`, `$`, `!`, `%`, dll.).
+- **Pembatasan Percobaan Login (Rate Limiting)**: Setiap IP dibatasi maksimal melakukan 5 kali request login atau registrasi dalam jangka waktu 15 menit. Jika melanggar, server akan mengembalikan pesan penolakan percobaan login (HTTP 429).
+- **Kebijakan Keamanan Konten (CSP)**: Mengaktifkan Content Security Policy (CSP) pada browser melalui middleware keamanan Helmet untuk mencegah eksekusi skrip luar yang tidak sah, dengan tetap mengizinkan fungsi pembayaran online Midtrans Snap.
+
 ### Manager
 
 - Seluruh modul dashboard Manager/Admin memakai pola visual yang sama: panel terang, sudut membulat, jarak antarelemen yang lega, header dan area tindakan yang konsisten, serta state hover/focus yang jelas.
@@ -220,6 +228,7 @@ Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus me
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-12 | Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet. |
 | 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan assignment produk per outlet, harga khusus, status aktif/tersedia per cabang, filter katalog outlet, dan validasi checkout berbasis `outlet_products`, sementara kategori dan master produk tetap global. |
 | 2026-07-12 | Menyeragamkan tampilan seluruh modul Manager/Admin—Produk, Kategori, Promosi, Cashier, Inventory, Report, Outlet, Franchise, dan RBAC—dengan panel terang, area tindakan konsisten, serta layout responsif. |

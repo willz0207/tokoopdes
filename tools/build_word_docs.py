@@ -533,6 +533,16 @@ def build_fsd() -> None:
         ),
     )
 
+    add_heading(doc, "4.12 Keamanan Sistem", 2)
+    add_bullets(
+        doc,
+        (
+            "Verifikasi Kekuatan Kata Sandi: Pengguna (pelanggan maupun kasir) wajib menggunakan kata sandi minimal 8 karakter dengan kombinasi huruf besar, huruf kecil, angka, dan simbol khusus.",
+            "Pembatasan Percobaan Login (Rate Limiting): Setiap IP dibatasi maksimal 5 kali request login/registrasi per 15 menit. Jika dilanggar, server mengembalikan respons HTTP 429.",
+            "Kebijakan Keamanan Konten (CSP): Mengaktifkan CSP melalui Helmet untuk mencegah eksekusi script luar yang tidak sah, dengan tetap mengizinkan fungsi pembayaran online Midtrans Snap.",
+        ),
+    )
+
     add_heading(doc, "4.12 Mode Development Lokal", 2)
     add_bullets(
         doc,
@@ -566,6 +576,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan assignment produk per outlet, harga khusus, status aktif/tersedia per cabang, filter katalog outlet, dan validasi checkout berbasis outlet_products, sementara kategori dan master produk tetap global."),
             ("2026-07-12", "Menyeragamkan tampilan seluruh modul Manager/Admin—Produk, Kategori, Promosi, Cashier, Inventory, Report, Outlet, Franchise, dan RBAC—dengan panel terang, area tindakan konsisten, serta layout responsif."),
@@ -817,6 +828,13 @@ def build_tsd() -> None:
         "Verifikasi Migrasi Cepat: seedDatabase menggunakan to_regclass untuk mendeteksi keberadaan tabel, mempercepat cold start serverless.",
     ))
 
+    add_heading(doc, "3.12 Fitur Keamanan Tambahan", 2)
+    add_bullets(doc, (
+        "Pembatasan Request (Rate Limiting): Endpoint autentikasi dilindungi oleh middleware rateLimiter in-memory (maksimal 5 kali percobaan per 15 menit per IP).",
+        "Kebijakan Kekuatan Kata Sandi: Setiap pembuatan/pembaruan kata sandi divalidasi oleh isStrongPassword (minimal 8 karakter, ada huruf besar, huruf kecil, angka, dan simbol khusus).",
+        "Content Security Policy (CSP): Helmet dikonfigurasi dengan direktif CSP yang aman namun tetap kompatibel dengan Vite development server dan Midtrans Snap.",
+    ))
+
     add_heading(doc, "4. API Utama", 1)
     add_table(
         doc,
@@ -935,6 +953,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan migrasi 0003_outlet_products.sql, kontrak assignment, query harga efektif, endpoint assignment per outlet, filter kategori/katalog storefront, validasi checkout server-side, dan UI pengaturan produk pada outlet aktif."),
             ("2026-07-12", "Membatasi CSS footer storefront ke .app-shell > footer dan menambahkan sistem visual bersama pada manager.css agar seluruh modul Manager/Admin memakai panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif yang konsisten."),
@@ -1055,10 +1074,11 @@ def build_user_guide() -> None:
         doc,
         (
             "Tekan tombol masuk pada halaman toko dan pilih role Pelanggan.",
-            "Untuk akun baru, pilih Daftar sekarang lalu isi nama, email, dan password minimal 8 karakter.",
+            "Untuk akun baru, pilih Daftar sekarang lalu isi nama, email, dan password minimal 8 karakter yang mengandung kombinasi huruf besar, huruf kecil, angka, dan simbol khusus.",
             "Untuk akun lama, isi email dan password lalu tekan Masuk.",
         ),
     )
+    add_info_box(doc, "Keamanan Akses Akun", "Kata sandi wajib memiliki minimal 8 karakter dan mengandung kombinasi huruf besar, huruf kecil, angka, serta simbol khusus. Sistem membatasi upaya masuk (login/register) maksimal 5 kali percobaan per 15 menit untuk setiap IP.")
 
     add_heading(doc, "3.2 Memilih Produk dan Add-on", 2)
     add_numbered(
@@ -1167,7 +1187,7 @@ def build_user_guide() -> None:
         (
             "Buka tab Cashier dan tekan Tambah cashier.",
             "Setiap kartu menampilkan inisial avatar, nama, email, dan keterangan apakah akun siap digunakan atau aksesnya sedang dinonaktifkan.",
-            "Pilih outlet penempatan, lalu isi nama, email, dan password awal minimal 8 karakter.",
+            "Pilih outlet penempatan, lalu isi nama, email, dan password awal minimal 8 karakter yang mengandung kombinasi huruf besar, huruf kecil, angka, dan simbol khusus.",
             "Tekan Edit untuk mengubah outlet, identitas, password, atau status login.",
             "Tekan Hapus untuk menghapus akun. Akun nonaktif atau terhapus tidak dapat memakai sesi lama.",
         ),
@@ -1308,6 +1328,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan panduan master produk global dan assignment per outlet, termasuk harga khusus, status aktif/tersedia, dampak pada katalog, serta pemecahan masalah produk outlet."),
             ("2026-07-12", "Menambahkan panduan tampilan seragam seluruh modul Manager/Admin, termasuk letak tindakan, pola panel terang, dan penyesuaian navigasi pada layar ponsel."),

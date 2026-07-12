@@ -316,6 +316,22 @@ Frontend menyimpan token di localStorage dengan key generik:
 - Endpoint RBAC membutuhkan role `admin` dan permission `rbac`.
 - Endpoint legacy `/api/admin/*` tetap tersedia dan ikut dicek memakai permission modul terkait.
 
+### Fitur Keamanan Tambahan
+
+Sistem mengimplementasikan pengamanan tambahan pada layer backend untuk melindungi aplikasi dari penyalahgunaan:
+
+1. **Pembatasan Request (Rate Limiting)**:
+   Endpoint autentikasi (`POST /api/auth/register`, `POST /api/auth/login`, dan `POST /api/auth/admin`) dilindungi oleh middleware pembatas request (`rateLimiter`). Setiap alamat IP dibatasi maksimal **5 kali percobaan akses per 15 menit**. Jika batas ini terlampaui, server akan mengembalikan respons status `429 Too Many Requests`.
+2. **Kebijakan Kekuatan Kata Sandi**:
+   Setiap pembuatan atau pembaruan kata sandi (pada registrasi pelanggan, ganti password profil, pembuatan kasir, dan pengeditan kasir oleh manager) wajib divalidasi oleh fungsi `isStrongPassword`. Kriteria kata sandi yang kuat adalah:
+   - Minimal memiliki panjang **8 karakter**.
+   - Mengandung minimal satu huruf besar (`A-Z`).
+   - Mengandung minimal satu huruf kecil (`a-z`).
+   - Mengandung minimal satu angka (`0-9`).
+   - Mengandung minimal satu simbol khusus/karakter khusus (seperti `@`, `$`, `!`, `%`, `*`, `?`, `&`, dan simbol standar lainnya).
+3. **Content Security Policy (CSP)**:
+   Middleware `helmet` dikonfigurasi untuk mengaktifkan CSP yang ketat namun tetap kompatibel dengan ekosistem local development (Vite) dan integrasi pembayaran online Midtrans Snap (mengizinkan script dan frame dari domain `*.midtrans.com`).
+
 ## 6. Upload gambar
 
 Foto produk dan gambar brand dikirim sebagai Data URL base64 agar dapat disimpan bersama data aplikasi tanpa layanan penyimpanan file tambahan.
@@ -397,6 +413,7 @@ Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan br
 
 | Tanggal | Perubahan teknis |
 |---|---|
+| 2026-07-12 | Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet. |
 | 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan migrasi `0003_outlet_products.sql`, kontrak assignment, query harga efektif, endpoint assignment per outlet, filter kategori/katalog storefront, validasi checkout server-side, dan UI pengaturan produk pada outlet aktif. |
 | 2026-07-12 | Membatasi CSS footer storefront ke `.app-shell > footer` dan menambahkan sistem visual bersama pada `manager.css` agar seluruh modul Manager/Admin memakai panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif yang konsisten. |
