@@ -49,6 +49,17 @@ Alamat halaman utama:
 
 > Ganti seluruh password bawaan dan `APP_JWT_SECRET` sebelum aplikasi dipublikasikan.
 
+### Menjalankan aplikasi Android
+
+1. Pastikan Android Studio dan Android SDK sudah terpasang.
+2. Salin `.env.example` menjadi `.env`. Untuk emulator, gunakan `VITE_API_BASE_URL=http://10.0.2.2:3001`. Untuk perangkat fisik, ganti dengan IP LAN komputer, misalnya `http://192.168.1.10:3001`; jangan memakai `localhost`.
+3. Jalankan `npm run mobile:build` untuk membangun frontend dan menyinkronkannya ke project Android.
+4. Jalankan `npm run mobile:open` untuk membuka folder `android/` di Android Studio.
+5. Pilih emulator atau perangkat Android yang terhubung, lalu tekan **Run** di Android Studio.
+6. Untuk mencoba APK debug dari command line, jalankan `npm run mobile:apk`. File APK akan berada di `android/app/build/outputs/apk/debug/app-debug.apk` jika toolchain lengkap.
+
+Di aplikasi Android, login, outlet, katalog, keranjang, Cashier, Manager/Admin, Inventory, Report, dan RBAC bekerja seperti versi web. Pembayaran online serta WhatsApp dibuka di browser perangkat. Setelah selesai, kembali ke aplikasi dan periksa **Pesanan Saya**.
+
 ## 3. Ringkasan hak akses
 
 Akses ke modul operasional diatur melalui RBAC. Tabel berikut menunjukkan pengaturan awal. Admin dapat menyesuaikannya kapan saja melalui tab **RBAC**.
@@ -271,6 +282,14 @@ Menu profil tersedia di pojok kanan atas untuk setiap role. Dari menu ini, pengg
 - Jika Server Key kosong, aplikasi sengaja menggunakan simulator lokal di `/payment-simulator`.
 - Pesanan online yang gagal atau kedaluwarsa dibatalkan otomatis dan stok dikembalikan.
 
+### Aplikasi Android tidak dapat memuat data
+
+- Pastikan API lokal berjalan pada port 3001 dan perangkat berada pada jaringan yang sesuai.
+- Untuk emulator, gunakan `VITE_API_BASE_URL=http://10.0.2.2:3001`. Untuk perangkat fisik, gunakan IP LAN komputer; `http://localhost:3001` justru menunjuk ke perangkat itu sendiri.
+- Jika memakai backend publik, pastikan URL HTTPS aktif. Setelah mengubah alamat API, jalankan ulang `npm run mobile:build`.
+- Pastikan backend mengizinkan origin native melalui `MOBILE_ALLOWED_ORIGINS=capacitor://localhost,https://localhost`.
+- Jika project Android tidak dapat dibangun, periksa instalasi Android Studio, Android SDK, dan JDK.
+
 ### Data outlet terlihat kosong
 
 - Periksa outlet aktif pada selector di kanan atas dashboard.
@@ -355,6 +374,8 @@ Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib 
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-13 | Menerapkan perbaikan bottleneck performa & reliability: indeks kueri database baru, batch loading kueri N+1 (produk & pesanan), idempotensi notifikasi pembayaran via tabel log `payment_notifications`, optimasi event loop Netlify, dan kompresi gambar otomatis ke WebP di sisi klien. |
+| 2026-07-12 | Menambahkan panduan membangun dan menjalankan aplikasi Android Capacitor, mengatur URL API mobile, membuka pembayaran/WhatsApp, menemukan APK debug, dan menangani masalah koneksi perangkat. |
 | 2026-07-12 | Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier. |
 | 2026-07-12 | Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet. |
 | 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |

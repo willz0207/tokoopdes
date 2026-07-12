@@ -78,6 +78,7 @@ const {
   updatePromotion,
   updateProduct,
   updateRolePermissions,
+  checkAndLogPaymentNotification,
 } = storage
 
 export const app = express()
@@ -92,6 +93,25 @@ const isUniqueError = (error: unknown) => (error as { code?: string })?.code ===
 if (!adminPassword || !jwtSecret) {
   throw new Error('APP_ADMIN_PASSWORD dan APP_JWT_SECRET wajib diisi untuk mode production.')
 }
+
+const mobileOrigins = new Set([
+  'capacitor://localhost',
+  'https://localhost',
+  'http://localhost',
+  ...String(process.env.MOBILE_ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean),
+])
+
+app.use((request, response, next) => {
+  const origin = request.headers.origin
+  if (origin && mobileOrigins.has(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin)
+    response.setHeader('Vary', 'Origin')
+    response.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Outlet-Id')
+    response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
+  }
+  if (request.method === 'OPTIONS') return response.sendStatus(204)
+  next()
+})
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -473,6 +493,17 @@ app.post('/api/payments/:orderId/simulate', requireRoles('customer'), async (req
 app.post('/api/payments/midtrans/notification', async (request, response) => {
   const notification = request.body as MidtransNotification
   if (!verifyMidtransNotification(notification)) return response.status(401).json({ message: 'Signature notifikasi Midtrans tidak valid.' })
+
+  const transactionId = notification.transaction_id || ''
+  const transactionStatus = notification.transaction_status || ''
+  if (transactionId && transactionStatus) {
+    const idempotencyKey = `${transactionId}:${transactionStatus}`
+    const isProcessed = await checkAndLogPaymentNotification(idempotencyKey, notification)
+    if (isProcessed) {
+      return response.json({ status: 'already_processed' })
+    }
+  }
+
   const orderId = String(notification.order_id || '')
   const target = await getOrderPaymentTarget(orderId)
   if (!target) return response.status(404).json({ message: 'Pesanan tidak ditemukan.' })

@@ -6,7 +6,10 @@ import CashierApp from './CashierApp'
 import CustomerOrdersApp from './CustomerOrdersApp'
 import ManagerApp from './ManagerApp'
 import PaymentSimulatorApp from './PaymentSimulatorApp'
+import { initializeMobileApp } from './mobile'
 import './styles.css'
+
+void initializeMobileApp()
 
 const isAdminRoute = window.location.pathname.startsWith('/admin')
 const isAuthRoute = window.location.pathname.startsWith('/login')

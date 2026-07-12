@@ -475,7 +475,17 @@ def build_fsd() -> None:
         "Simulator lokal tersedia di /payment-simulator saat MIDTRANS_SERVER_KEY belum diisi.",
     ))
 
-    add_heading(doc, "4.8 Inventory", 2)
+    add_heading(doc, "4.8 Aplikasi Mobile Android", 2)
+    add_bullets(doc, (
+        "Aplikasi web dikemas sebagai aplikasi Android melalui Capacitor tanpa menduplikasi frontend React/TypeScript.",
+        "Pelanggan, Cashier, Manager, dan Admin memakai fitur serta role yang sama seperti versi web.",
+        "Aplikasi Android mengambil data dari VITE_API_BASE_URL. Emulator dapat memakai http://10.0.2.2:3001 untuk API lokal, perangkat fisik memakai IP LAN komputer, dan rilis publik memakai backend HTTPS.",
+        "Status bar, splash screen, safe area, dan target sentuh disesuaikan untuk perangkat mobile.",
+        "Pembayaran online dan WhatsApp dibuka melalui browser perangkat; status pembayaran dan pesanan tetap dipantau dari aplikasi.",
+        "API hanya menerima origin native yang terdaftar pada MOBILE_ALLOWED_ORIGINS.",
+    ))
+
+    add_heading(doc, "4.9 Inventory", 2)
     add_bullets(
         doc,
         (
@@ -489,7 +499,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.9 Report Operasional dan Keuangan", 2)
+    add_heading(doc, "4.10 Report Operasional dan Keuangan", 2)
     add_bullets(
         doc,
         (
@@ -500,7 +510,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.10 Manager dan Admin", 2)
+    add_heading(doc, "4.11 Manager dan Admin", 2)
     add_bullets(
         doc,
         (
@@ -519,7 +529,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.11 RBAC Modul", 2)
+    add_heading(doc, "4.12 RBAC Modul", 2)
     add_bullets(
         doc,
         (
@@ -533,7 +543,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.12 Keamanan Sistem", 2)
+    add_heading(doc, "4.13 Keamanan Sistem", 2)
     add_bullets(
         doc,
         (
@@ -543,7 +553,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.12 Mode Development Lokal", 2)
+    add_heading(doc, "4.14 Mode Development Lokal", 2)
     add_bullets(
         doc,
         (
@@ -556,7 +566,7 @@ def build_fsd() -> None:
         ),
     )
 
-    add_heading(doc, "4.13 Hosting Publik Opsional", 2)
+    add_heading(doc, "4.15 Hosting Publik Opsional", 2)
     add_bullets(
         doc,
         (
@@ -576,6 +586,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Menambahkan aplikasi Android berbasis Capacitor, konfigurasi API mobile, integrasi browser pembayaran/WhatsApp, status bar, splash screen, safe area, dan perintah build native."),
             ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
@@ -644,6 +655,7 @@ def build_tsd() -> None:
             ("src/CustomerOrdersApp.tsx", "Tracking pesanan pelanggan."),
             ("src/ManagerApp.tsx", "Dashboard manager/admin berbasis permission, pemilih/CRUD outlet, master produk, assignment produk per outlet, kategori, promosi, cashier, inventory, Report, RBAC, dan settings."),
             ("src/PaymentSimulatorApp.tsx", "Simulator pembayaran lokal tanpa API key Midtrans."),
+            ("src/mobile.ts", "Deteksi platform native, konfigurasi status bar/splash screen, dan pembukaan URL eksternal melalui plugin Browser."),
             ("src/manager.css", "Sistem visual bersama untuk seluruh dashboard Manager/Admin: token surface/shadow, panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif."),
             ("src/InventoryModule.tsx", "UI item inventory, minimum stok, mutasi, dan riwayat stok."),
             ("src/ReportsModule.tsx", "Dashboard Report operasional/keuangan, filter periode, ekspor CSV, dan transaksi biaya/modal."),
@@ -660,6 +672,8 @@ def build_tsd() -> None:
             ("netlify/database/migrations/0003_outlet_products.sql", "Migrasi assignment produk per outlet, harga override, status aktif, dan status tersedia."),
             ("netlify.toml", "Build, bundling Function, routing API, dan fallback SPA."),
             ("vite.config.ts", "Konfigurasi Vite, port 5175, dan proxy /api ke API lokal port 3001."),
+            ("capacitor.config.ts", "Identitas aplikasi Android, folder dist, scheme WebView, serta konfigurasi plugin native."),
+            ("android/", "Project native Android yang dikelola Capacitor dan dibuka melalui Android Studio."),
         ),
         widths=(2.25, 4.25),
     )
@@ -820,7 +834,17 @@ def build_tsd() -> None:
         "Status gagal/kedaluwarsa membatalkan order dan mengembalikan stok; order online belum paid tidak dapat diproses. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit melalui parameter Snap expiry untuk mencegah penguncian stok jangka panjang.",
     ))
 
-    add_heading(doc, "3.11 Optimasi Performa Database dan Serverless", 2)
+    add_heading(doc, "3.11 Aplikasi Mobile Android", 2)
+    add_bullets(doc, (
+        "Capacitor v8 membungkus hasil build Vite dari dist ke project android dengan application ID com.tokokopdes.mobile dan minimum Android API 24.",
+        "src/mobile.ts mengaktifkan StatusBar, SplashScreen, class capacitor-native, dan plugin Browser hanya pada container native.",
+        "src/api.ts memakai VITE_API_BASE_URL; versi web tetap memakai path relatif /api dan build native memiliki fallback http://10.0.2.2:3001 untuk API lokal dari emulator.",
+        "AndroidManifest.xml mengizinkan cleartext traffic untuk pengembangan melalui emulator atau jaringan LAN; build produksi sebaiknya memakai backend HTTPS.",
+        "Middleware CORS server hanya mengizinkan capacitor://localhost, https://localhost, http://localhost, dan origin dari MOBILE_ALLOWED_ORIGINS.",
+        "Pembayaran dan WhatsApp dibuka di browser perangkat; safe area serta touch action ditangani melalui src/styles.css.",
+    ))
+
+    add_heading(doc, "3.12 Optimasi Performa Database dan Serverless", 2)
     add_bullets(doc, (
         "Eliminasi Kueri N+1 pada Produk: Fungsi getProducts mem-bulk fetch add-on untuk semua produk dalam satu kueri SQL menggunakan ANY($1::int[]) dan memetakan di memori.",
         "Caching Otorisasi Dinamis: Hak akses disimpan di memori (rolePermissionsCache) dan dibersihkan otomatis ketika matriks RBAC diperbarui.",
@@ -829,7 +853,7 @@ def build_tsd() -> None:
         "Verifikasi Migrasi Cepat: seedDatabase menggunakan to_regclass untuk mendeteksi keberadaan tabel, mempercepat cold start serverless.",
     ))
 
-    add_heading(doc, "3.12 Fitur Keamanan Tambahan", 2)
+    add_heading(doc, "3.13 Fitur Keamanan Tambahan", 2)
     add_bullets(doc, (
         "Pembatasan Request (Rate Limiting): Endpoint autentikasi dilindungi oleh middleware rateLimiter in-memory (maksimal 5 kali percobaan per 15 menit per IP).",
         "Kebijakan Kekuatan Kata Sandi: Setiap pembuatan/pembaruan kata sandi divalidasi oleh isStrongPassword (minimal 8 karakter, ada huruf besar, huruf kecil, angka, dan simbol khusus).",
@@ -912,6 +936,8 @@ def build_tsd() -> None:
         "MIDTRANS_SERVER_KEY adalah credential rahasia backend; jika kosong aplikasi memakai simulator lokal.",
         "MIDTRANS_CLIENT_KEY disiapkan untuk Snap JS; MIDTRANS_IS_PRODUCTION menentukan sandbox/production.",
         "PUBLIC_APP_URL menjadi base URL callback selesai pembayaran.",
+        "VITE_API_BASE_URL menjadi alamat backend aplikasi Android: 10.0.2.2 untuk emulator, IP LAN untuk perangkat fisik, atau URL HTTPS untuk rilis publik.",
+        "MOBILE_ALLOWED_ORIGINS menyimpan daftar origin native tambahan yang diizinkan API.",
     ))
     add_table(
         doc,
@@ -919,6 +945,8 @@ def build_tsd() -> None:
         (
             ("Development", "npm run dev"),
             ("Build", "npm run build"),
+            ("Android sync", "npm run mobile:build; npm run mobile:open"),
+            ("Android APK debug", "npm run mobile:apk; membutuhkan Android Studio, Android SDK, dan JDK yang sesuai."),
             ("Production", "npm run build; host publik menerbitkan dist dan backend sesuai platform."),
         ),
         widths=(1.65, 4.85),
@@ -954,6 +982,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-12", "Menambahkan Capacitor v8, project native android, konfigurasi capacitor.config.ts, base URL API mobile, CORS native terbatas, plugin Browser/StatusBar/SplashScreen, safe area CSS, dan script build Android."),
             ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
@@ -1046,6 +1075,16 @@ def build_user_guide() -> None:
         widths=(1.25, 3.4, 1.85),
     )
     add_info_box(doc, "Penting untuk produksi", "Ganti seluruh password bawaan dan APP_JWT_SECRET sebelum aplikasi dipublikasikan.")
+
+    add_heading(doc, "1.2 Menjalankan Aplikasi Android", 2)
+    add_numbered(doc, (
+        "Pastikan Android Studio dan Android SDK terpasang.",
+        "Untuk emulator, isi VITE_API_BASE_URL dengan http://10.0.2.2:3001. Pada perangkat fisik, gunakan IP LAN komputer dan jangan memakai localhost.",
+        "Jalankan npm run mobile:build untuk build frontend dan sinkronisasi Android.",
+        "Jalankan npm run mobile:open, pilih emulator/perangkat, lalu tekan Run di Android Studio.",
+        "Gunakan npm run mobile:apk untuk mencoba membuat APK debug di android/app/build/outputs/apk/debug/app-debug.apk.",
+    ))
+    add_body(doc, "Login, outlet, katalog, keranjang, seluruh dashboard role, Inventory, Report, dan RBAC bekerja seperti versi web. Pembayaran online serta WhatsApp dibuka di browser perangkat.")
 
     add_heading(doc, "2. Ringkasan Hak Akses", 1)
     add_body(doc, "Akses ke modul operasional diatur melalui RBAC. Tabel berikut menunjukkan pengaturan awal; Admin dapat menyesuaikannya kapan saja melalui tab RBAC.")
@@ -1316,6 +1355,14 @@ def build_user_guide() -> None:
             "Kredensial publik mengikuti password environment variable yang disimpan di hosting, bukan password yang disimpan di Git.",
         ),
     )
+    add_heading(doc, "9.12 Aplikasi Android Tidak Dapat Memuat Data", 2)
+    add_bullets(doc, (
+        "Pastikan API lokal berjalan pada port 3001 dan perangkat berada pada jaringan yang sesuai.",
+        "Untuk emulator gunakan VITE_API_BASE_URL=http://10.0.2.2:3001; untuk perangkat fisik gunakan IP LAN komputer dan jangan memakai localhost.",
+        "Jika memakai backend publik, pastikan URL HTTPS aktif. Jalankan ulang npm run mobile:build setelah alamat API berubah.",
+        "Pastikan MOBILE_ALLOWED_ORIGINS memuat capacitor://localhost dan https://localhost.",
+        "Jika build gagal, periksa Android Studio, Android SDK, dan JDK.",
+    ))
 
     add_heading(doc, "10. Aturan Pembaruan Dokumen", 1)
     add_info_box(
@@ -1330,6 +1377,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Menambahkan panduan membangun dan menjalankan aplikasi Android Capacitor, mengatur URL API mobile, membuka pembayaran/WhatsApp, menemukan APK debug, dan menangani masalah koneksi perangkat."),
             ("2026-07-12", "Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier."),
             ("2026-07-12", "Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet."),
             ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),

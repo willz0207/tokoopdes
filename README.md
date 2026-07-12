@@ -15,6 +15,7 @@ Website pemesanan online berbasis React + TypeScript dengan backend Express dan 
 - Upload foto produk, gambar hero, dan gambar bagian tentang.
 - Multi-outlet: CRUD cabang, penempatan cashier, assignment produk, harga/ketersediaan per outlet, serta pemisahan pesanan, stok, transaksi keuangan, dan laporan.
 - Pembayaran online Midtrans Snap dengan webhook tervalidasi serta simulator lokal ketika API key belum tersedia.
+- Aplikasi Android berbasis Capacitor dengan satu codebase React/TypeScript yang sama seperti versi web.
 
 ## Akun lokal bawaan
 
@@ -61,10 +62,29 @@ Salin `.env.example` menjadi `.env`, lalu ganti nilai rahasia sebelum publikasi.
 - `MIDTRANS_SERVER_KEY` dan `MIDTRANS_CLIENT_KEY` untuk pembayaran Midtrans.
 - `MIDTRANS_IS_PRODUCTION=false` untuk sandbox atau `true` untuk production.
 - `PUBLIC_APP_URL` untuk URL callback pembayaran.
+- `VITE_API_BASE_URL` untuk alamat backend yang diakses aplikasi Android.
+- `MOBILE_ALLOWED_ORIGINS` untuk origin Capacitor tambahan yang diizinkan API.
 
 Jika `MIDTRANS_SERVER_KEY` kosong, pembayaran QRIS/e-wallet/transfer bank memakai simulator lokal dan tidak memproses uang sungguhan. Untuk Midtrans, arahkan Payment Notification URL ke `https://domain-anda/api/payments/midtrans/notification`.
 
 Schema PostgreSQL dikelola melalui migration `netlify/database/migrations/0001_initial_schema.sql`, `0002_multi_outlet_payments.sql`, dan `0003_outlet_products.sql`.
+
+## Aplikasi Android
+
+Versi Android berada di folder `android/` dan memakai hasil build Vite dari `dist/`. Atur alamat backend melalui `VITE_API_BASE_URL`. Emulator Android dapat memakai `http://10.0.2.2:3001`, sedangkan perangkat fisik harus memakai IP LAN komputer, misalnya `http://192.168.1.10:3001`. Untuk rilis publik, gunakan backend HTTPS.
+
+```bash
+npm run mobile:build
+npm run mobile:open
+```
+
+Perintah `mobile:build` membangun web lalu menjalankan `cap sync android`. Perintah `mobile:open` membuka project native di Android Studio. Untuk mencoba membuat APK debug dari command line:
+
+```bash
+npm run mobile:apk
+```
+
+Android Studio dan Android SDK wajib terpasang untuk menjalankan emulator atau menghasilkan APK. Pembayaran online dan WhatsApp dibuka melalui browser perangkat, sedangkan status pesanan tetap dipantau dari aplikasi.
 
 ## Hosting publik opsional
 

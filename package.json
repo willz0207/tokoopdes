@@ -9,6 +9,10 @@
     "dev:web": "vite --host 0.0.0.0",
     "dev:server": "tsx watch server/start.ts",
     "build": "tsc -b && vite build && tsc -p server/tsconfig.json",
+    "mobile:build": "npm run build && cap sync android",
+    "mobile:open": "cap open android",
+    "mobile:run": "npm run mobile:build && cap run android",
+    "mobile:apk": "npm run mobile:build && cd android && gradlew.bat assembleDebug",
     "start": "node server-dist/start.js",
     "preview": "vite preview",
     "test:e2e": "playwright test",
@@ -16,6 +20,11 @@
     "test:e2e:report": "playwright show-report outputs/playwright-report"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/browser": "^8.0.3",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@netlify/functions": "^5.3.0",
     "@vitejs/plugin-react": "latest",
     "dotenv": "latest",
@@ -30,6 +39,7 @@
     "vite": "latest"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@playwright/test": "^1.61.1",
     "@types/express": "latest",
     "@types/jsonwebtoken": "latest",

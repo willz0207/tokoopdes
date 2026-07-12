@@ -83,7 +83,7 @@ const getPool = (): pg.Pool => {
       connectionString: conn,
       max: 20,
       ssl: shouldUseSsl(conn) ? { rejectUnauthorized: false } : false,
-      idleTimeoutMillis: 20_000,
+      idleTimeoutMillis: 10000,
       connectionTimeoutMillis: 10_000,
     })
   }
@@ -226,6 +226,13 @@ const seedDatabase = () => transaction(async (client) => {
     const outletProductsMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0003_outlet_products.sql')
     if (!existsSync(outletProductsMigration)) throw new Error(`File migration tidak ditemukan: ${outletProductsMigration}`)
     await client.query(await readFile(outletProductsMigration, 'utf8'))
+  }
+
+  const hasPaymentNotificationsTable = await first<{ paymentNotificationsTable: string | null }>(client, `SELECT to_regclass('public.payment_notifications') AS "paymentNotificationsTable"`)
+  if (!hasPaymentNotificationsTable?.paymentNotificationsTable) {
+    const bottleneckOptimizationsMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0004_bottleneck_optimizations.sql')
+    if (!existsSync(bottleneckOptimizationsMigration)) throw new Error(`File migration tidak ditemukan: ${bottleneckOptimizationsMigration}`)
+    await client.query(await readFile(bottleneckOptimizationsMigration, 'utf8'))
   }
 
   if (isFresh) {
@@ -964,13 +971,67 @@ export async function createOrder(input: NewOrderInput) {
 export async function getOrders(outletId: number) {
   await initialize()
   const orderRows = await rows(pool, `${orderSelect} WHERE orders.outlet_id=$1 ORDER BY orders.created_at DESC`, [outletId])
-  return Promise.all(orderRows.map((row) => getOrderById(String(row.id)))) as Promise<OrderRecord[]>
+  if (orderRows.length === 0) return []
+
+  const orderIds = orderRows.map((r) => String(r.id))
+  const itemRows = await rows(pool, `
+    SELECT order_id AS "orderId", product_id AS "productId", product_name AS "productName",
+      quantity, unit_price AS "unitPrice", addons_json AS addons
+    FROM order_items
+    WHERE order_id = ANY($1::text[])
+    ORDER BY id ASC
+  `, [orderIds])
+
+  const itemsByOrderId = new Map<string, any[]>()
+  for (const item of itemRows) {
+    const oId = String(item.orderId)
+    if (!itemsByOrderId.has(oId)) itemsByOrderId.set(oId, [])
+    itemsByOrderId.get(oId)!.push({
+      productId: numberValue(item.productId),
+      productName: String(item.productName),
+      quantity: numberValue(item.quantity),
+      unitPrice: numberValue(item.unitPrice),
+      addons: Array.isArray(item.addons) ? item.addons : [],
+    })
+  }
+
+  return orderRows.map((row) => ({
+    ...mapOrderRow(row),
+    items: itemsByOrderId.get(String(row.id)) || [],
+  })) as any[]
 }
 
 export async function getCustomerOrders(customerId: number) {
   await initialize()
-  const idRows = await rows(pool, 'SELECT id FROM orders WHERE customer_id=$1 ORDER BY created_at DESC', [customerId])
-  return Promise.all(idRows.map((row) => getOrderById(String(row.id)))) as Promise<OrderRecord[]>
+  const orderRows = await rows(pool, `${orderSelect} WHERE orders.customer_id=$1 ORDER BY orders.created_at DESC`, [customerId])
+  if (orderRows.length === 0) return []
+
+  const orderIds = orderRows.map((r) => String(r.id))
+  const itemRows = await rows(pool, `
+    SELECT order_id AS "orderId", product_id AS "productId", product_name AS "productName",
+      quantity, unit_price AS "unitPrice", addons_json AS addons
+    FROM order_items
+    WHERE order_id = ANY($1::text[])
+    ORDER BY id ASC
+  `, [orderIds])
+
+  const itemsByOrderId = new Map<string, any[]>()
+  for (const item of itemRows) {
+    const oId = String(item.orderId)
+    if (!itemsByOrderId.has(oId)) itemsByOrderId.set(oId, [])
+    itemsByOrderId.get(oId)!.push({
+      productId: numberValue(item.productId),
+      productName: String(item.productName),
+      quantity: numberValue(item.quantity),
+      unitPrice: numberValue(item.unitPrice),
+      addons: Array.isArray(item.addons) ? item.addons : [],
+    })
+  }
+
+  return orderRows.map((row) => ({
+    ...mapOrderRow(row),
+    items: itemsByOrderId.get(String(row.id)) || [],
+  })) as any[]
 }
 
 export async function getOrderPaymentTarget(orderId: string, customerId?: number) {
@@ -1007,6 +1068,16 @@ export async function updatePaymentStatus(orderId: string, status: PaymentStatus
   if (!row) return undefined
   if (status === 'failed' || status === 'expired') await updateOrderStatus(orderId, 'cancelled')
   return getPaymentSession(orderId)
+}
+
+export async function checkAndLogPaymentNotification(idempotencyKey: string, payload: unknown) {
+  await initialize()
+  return transaction(async (client) => {
+    const exists = await first(client, 'SELECT 1 FROM payment_notifications WHERE idempotency_key=$1', [idempotencyKey])
+    if (exists) return true
+    await client.query('INSERT INTO payment_notifications (idempotency_key, payload) VALUES ($1, $2)', [idempotencyKey, JSON.stringify(payload)])
+    return false
+  })
 }
 
 export async function updateOrderStatus(id: string, status: string, outletId?: number) {

@@ -24,6 +24,7 @@ Dokumen ini menjelaskan susunan teknis aplikasi, mulai dari frontend dan backend
 | `src/CustomerOrdersApp.tsx` | Tracking pesanan pelanggan. |
 | `src/ManagerApp.tsx` | Dashboard manager/admin berbasis permission, pemilih outlet, CRUD master produk, assignment produk per outlet, kategori, promosi, cashier, inventory, Report, RBAC, dan franchise settings. |
 | `src/PaymentSimulatorApp.tsx` | Simulator pembayaran lokal untuk menguji status berhasil/gagal tanpa API key Midtrans. |
+| `src/mobile.ts` | Deteksi platform native, konfigurasi status bar/splash screen, dan pembukaan URL eksternal melalui plugin Browser. |
 | `src/manager.css` | Sistem visual bersama untuk seluruh dashboard Manager/Admin: token surface/shadow, panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif. |
 | `src/InventoryModule.tsx` | UI item inventory, minimum stok, stock movement, dan riwayat mutasi. |
 | `src/ReportsModule.tsx` | Dashboard laporan operasional/keuangan, filter periode, ekspor CSV, dan transaksi biaya/modal. |
@@ -40,6 +41,8 @@ Dokumen ini menjelaskan susunan teknis aplikasi, mulai dari frontend dan backend
 | `netlify/database/migrations/0003_outlet_products.sql` | Migrasi idempotent tabel assignment produk per outlet, harga override, status aktif, dan status tersedia. |
 | `netlify.toml` | Build, bundling Function, routing API, dan fallback SPA. |
 | `vite.config.ts` | Konfigurasi Vite, port 5175, dan proxy `/api` ke API lokal port 3001. |
+| `capacitor.config.ts` | Identitas aplikasi Android, folder `dist`, scheme WebView, serta konfigurasi plugin native. |
+| `android/` | Project native Android yang dikelola Capacitor dan dapat dibuka melalui Android Studio. |
 
 ## 3. Database
 
@@ -133,9 +136,19 @@ Tabel utama:
 - `payments` memiliki relasi unik ke `orders` dan menyimpan provider, status, token Snap, URL redirect, transaction ID, payment type, gross amount, raw response, serta waktu pembayaran.
 - `server/payments.ts` memilih Midtrans sandbox/production berdasarkan `MIDTRANS_IS_PRODUCTION`. Jika `MIDTRANS_SERVER_KEY` kosong, provider otomatis berubah menjadi `simulator`.
 - Pembuatan transaksi Snap dilakukan dari backend dengan HTTP Basic menggunakan Server Key. Frontend hanya menerima URL redirect.
-- Endpoint webhook memvalidasi SHA-512 dari `order_id + status_code + gross_amount + server_key`, lalu membandingkan nominal notifikasi dengan total order.
+- Endpoint webhook memvalidasi SHA-512 dari `order_id + status_code + gross_amount + server_key`, membandingkan nominal notifikasi dengan total order, serta mencatat status ke tabel `payment_notifications` secara idempotent menggunakan kunci gabungan ID transaksi dan status untuk mencegah duplikasi pemrosesan.
 - Status Midtrans dipetakan ke `pending`, `paid`, `failed`, `expired`, atau `refunded`. Status gagal/kedaluwarsa memanggil pembatalan order sehingga stok dikembalikan. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit melalui parameter Snap `expiry` untuk mencegah penguncian stok jangka panjang.
 - `updateOrderStatus()` menolak proses order online yang belum berstatus `paid`.
+
+### Aplikasi mobile Android
+
+- Capacitor v8 membungkus hasil build Vite dari `dist/` ke project native `android/` dengan application ID `com.tokokopdes.mobile` dan minimum Android API 24.
+- `src/mobile.ts` memakai `Capacitor.isNativePlatform()` untuk mengaktifkan status bar, splash screen, class `capacitor-native`, dan plugin `@capacitor/browser` hanya pada container native.
+- `src/api.ts` menyusun URL request dari `VITE_API_BASE_URL`. Versi web tetap memakai path relatif `/api`, sedangkan build native memakai fallback `http://10.0.2.2:3001` agar emulator dapat mengakses API lokal di komputer.
+- `AndroidManifest.xml` mengizinkan cleartext traffic untuk pengembangan melalui emulator atau jaringan LAN. Build produksi sebaiknya selalu diarahkan ke backend HTTPS.
+- Middleware CORS pada `server/index.ts` hanya mengizinkan `capacitor://localhost`, `https://localhost`, `http://localhost`, serta origin tambahan dari `MOBILE_ALLOWED_ORIGINS`. Header `Authorization` dan `X-Outlet-Id` diizinkan untuk API role/outlet.
+- Link pembayaran dan WhatsApp dibuka di browser perangkat agar WebView tidak meninggalkan aplikasi. Tracking tetap membaca status terbaru dari backend.
+- Safe area dan touch action ditangani melalui selector `html.capacitor-native` pada `src/styles.css`.
 
 ### Inventory
 
@@ -367,6 +380,11 @@ Environment pembayaran:
 - `PUBLIC_APP_URL`: base URL callback selesai pembayaran, misalnya `http://localhost:5175` atau domain production.
 - Jika `MIDTRANS_SERVER_KEY` kosong, checkout online memakai `/payment-simulator` dan tidak mengirim transaksi ke Midtrans.
 
+Environment mobile:
+
+- `VITE_API_BASE_URL`: alamat backend yang dapat diakses perangkat Android. Gunakan `http://10.0.2.2:3001` pada emulator, IP LAN komputer pada perangkat fisik, atau URL HTTPS untuk rilis publik.
+- `MOBILE_ALLOWED_ORIGINS`: daftar origin native tambahan yang diizinkan API, dipisahkan dengan koma.
+
 Development:
 
 ```bash
@@ -378,6 +396,15 @@ Build:
 ```bash
 npm run build
 ```
+
+Build dan sinkronisasi Android:
+
+```bash
+npm run mobile:build
+npm run mobile:open
+```
+
+`npm run mobile:apk` mencoba menghasilkan APK debug melalui Gradle. Android Studio, Android SDK, dan JDK yang sesuai harus tersedia pada komputer build.
 
 Production:
 
@@ -413,6 +440,8 @@ Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan br
 
 | Tanggal | Perubahan teknis |
 |---|---|
+| 2026-07-13 | Menerapkan perbaikan bottleneck performa & reliability: indeks kueri database baru, batch loading kueri N+1 (produk & pesanan), idempotensi notifikasi pembayaran via tabel log `payment_notifications`, optimasi event loop Netlify, dan kompresi gambar otomatis ke WebP di sisi klien. |
+| 2026-07-12 | Menambahkan Capacitor v8, project native `android/`, konfigurasi `capacitor.config.ts`, base URL API mobile, CORS native terbatas, plugin Browser/StatusBar/SplashScreen, safe area CSS, dan script build Android. |
 | 2026-07-12 | Mengganti pemilih outlet bawaan browser dengan komponen dropdown kustom (OutletSelector) yang lebih interaktif dan premium di storefront, manager, dan cashier. |
 | 2026-07-12 | Meningkatkan keamanan web: menambahkan in-memory rate limiter untuk login/register, menerapkan validasi kekuatan kata sandi (huruf besar/kecil, angka, simbol), dan mengonfigurasi Content Security Policy (CSP) pada Helmet. |
 | 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |

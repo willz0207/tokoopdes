@@ -3,6 +3,7 @@ import { ArrowLeft, Check, ChefHat, Clock3, MapPin, PackageCheck, RefreshCw, Sho
 import { authApi } from './api'
 import { formatRupiah } from './data'
 import { useFranchiseSettings } from './franchise'
+import { openExternalUrl } from './mobile'
 import type { Order, OrderStatus, User } from './types'
 import ProfileMenu from './ProfileMenu'
 import './customer-orders.css'
@@ -118,7 +119,7 @@ function OrderTrackingDetail({ order, lastUpdated }: { order: Order; lastUpdated
 
   return <div className="tracking-detail">
     <header><div><small>NOMOR PESANAN</small><h2>{order.id}</h2></div><span className={order.status}>{statusCopy[order.status].label}</span></header>
-    <div className={`tracking-payment ${order.paymentStatus}`}><div><small>PEMBAYARAN · {order.outletName}</small><b>{order.paymentMethod === 'cash' ? 'Tunai saat pesanan diterima' : order.paymentStatus === 'paid' ? 'Pembayaran online berhasil' : order.paymentStatus === 'pending' ? 'Menunggu pembayaran online' : 'Pembayaran tidak berhasil'}</b></div>{order.paymentStatus === 'pending' && order.paymentRedirectUrl && <a href={order.paymentRedirectUrl}>Bayar sekarang</a>}</div>
+    <div className={`tracking-payment ${order.paymentStatus}`}><div><small>PEMBAYARAN · {order.outletName}</small><b>{order.paymentMethod === 'cash' ? 'Tunai saat pesanan diterima' : order.paymentStatus === 'paid' ? 'Pembayaran online berhasil' : order.paymentStatus === 'pending' ? 'Menunggu pembayaran online' : 'Pembayaran tidak berhasil'}</b></div>{order.paymentStatus === 'pending' && order.paymentRedirectUrl && <button type="button" onClick={() => void openExternalUrl(order.paymentRedirectUrl!)}>Bayar sekarang</button>}</div>
     {order.status === 'cancelled' ? <div className="tracking-cancelled"><span>×</span><div><b>Pesanan dibatalkan</b><p>{statusCopy.cancelled.message}</p></div></div> : <>
       <div className={`tracking-current ${order.status}`}><span>{order.status === 'new' ? <Clock3 /> : order.status === 'preparing' ? <ChefHat /> : order.status === 'ready' ? <PackageCheck /> : order.status === 'delivering' ? <Truck /> : <Check />}</span><div><small>STATUS SEKARANG</small><h3>{statusCopy[order.status].label}</h3><p>{statusCopy[order.status].message}</p></div></div>
       <div className="tracking-timeline">{steps.map((step, index) => { const complete = statusIndex >= index; const current = statusIndex === index; return <div className={complete ? current ? 'timeline-step current complete' : 'timeline-step complete' : 'timeline-step'} key={step.status}><div className="timeline-marker"><i>{complete && !current ? <Check /> : step.icon}</i>{index < steps.length - 1 && <span className={statusIndex > index ? 'complete' : ''} />}</div><b>{step.label}</b></div> })}</div>

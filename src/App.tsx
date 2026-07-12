@@ -23,6 +23,7 @@ import { storefrontApi } from './api'
 import { OutletSelector } from './OutletSelector'
 import { defaultCategories, formatRupiah, products as defaultProducts } from './data'
 import { useFranchiseSettings } from './franchise'
+import { openExternalUrl } from './mobile'
 import type { CartItem, FranchiseSettings, MenuCategory, Outlet, PaymentMethod, Product, Promotion, User } from './types'
 import ProfileMenu from './ProfileMenu'
 
@@ -534,7 +535,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
       setOrderNumber(confirmedOrderNumber)
     if (paymentMethod !== 'cash' && order.paymentRedirectUrl) {
       clearCart()
-      window.location.href = order.paymentRedirectUrl
+      await openExternalUrl(order.paymentRedirectUrl)
       return
     }
     const itemLines = detailedCart
@@ -560,7 +561,7 @@ function CartDrawer({ cart, view, setView, close, updateQuantity, clearCart, cat
     ].filter(Boolean).join('\n')
 
     if (whatsappNumber) {
-      window.open(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+      await openExternalUrl(`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`)
     }
     clearCart()
     setView('success')

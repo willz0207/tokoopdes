@@ -8,17 +8,43 @@ export function readProductImageFile(file: File) {
       return
     }
 
-    if (file.size > MAX_PRODUCT_IMAGE_SIZE) {
-      reject(new Error('Ukuran foto maksimal 2 MB.'))
-      return
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.src = objectUrl
+
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      
+      const maxWidth = 800
+      let width = img.width
+      let height = img.height
+
+      if (width > maxWidth) {
+        height = Math.round(height * (maxWidth / width))
+        width = maxWidth
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        reject(new Error('Gagal menginisialisasi canvas untuk kompresi.'))
+        return
+      }
+
+      ctx.drawImage(img, 0, 0, width, height)
+      try {
+        const compressedDataUrl = canvas.toDataURL('image/webp', 0.75)
+        resolve(compressedDataUrl)
+      } catch (err) {
+        reject(new Error('Gagal melakukan kompresi gambar.'))
+      }
     }
 
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('Foto gagal dibaca. Coba pilih file lain.'))
-    reader.onload = () => {
-      if (typeof reader.result === 'string') resolve(reader.result)
-      else reject(new Error('Foto gagal dibaca. Coba pilih file lain.'))
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Foto gagal dimuat untuk dikompresi.'))
     }
-    reader.readAsDataURL(file)
   })
 }

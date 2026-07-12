@@ -1,7 +1,12 @@
 import type { CurrentPermissions, DashboardStats, FinancialEntry, FinancialEntryType, FranchiseSettings, InventoryItem, InventorySnapshot, MenuCategory, Order, OrderStatus, Outlet, PaymentMethod, PaymentSession, Product, ProductAddonInput, ProductOutletAssignmentInput, Promotion, ReportData, RolePermissionMatrix, StockMovement, StockMovementType, User, UserRole } from './types'
+import { isNativeMobile } from './mobile'
+
+const configuredApiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '')
+const apiBaseUrl = configuredApiBaseUrl || (isNativeMobile ? 'http://10.0.2.2:3001' : '')
+const resolveApiUrl = (url: string) => url.startsWith('/api') ? `${apiBaseUrl}${url}` : url
 
 async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(resolveApiUrl(url), {
     ...options,
     headers: {
       'Content-Type': 'application/json',
