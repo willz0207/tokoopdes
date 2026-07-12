@@ -81,7 +81,7 @@ const getPool = (): pg.Pool => {
     currentConnectionString = conn
     activePoolInstance = new pg.Pool({
       connectionString: conn,
-      max: 10,
+      max: 20,
       ssl: shouldUseSsl(conn) ? { rejectUnauthorized: false } : false,
       idleTimeoutMillis: 20_000,
       connectionTimeoutMillis: 10_000,
@@ -206,85 +206,95 @@ const initialize = () => {
 const seedDatabase = () => transaction(async (client) => {
   await client.query('SELECT pg_advisory_xact_lock($1)', [734_020_202])
   const schema = await first<{ usersTable: string | null }>(client, `SELECT to_regclass('public.users') AS "usersTable"`)
-  if (!schema?.usersTable) {
+  const isFresh = !schema?.usersTable
+
+  if (isFresh) {
     const migrationPath = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0001_initial_schema.sql')
     if (!existsSync(migrationPath)) throw new Error(`File migration tidak ditemukan: ${migrationPath}`)
     await client.query(await readFile(migrationPath, 'utf8'))
   }
 
-  const multiOutletMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0002_multi_outlet_payments.sql')
-  if (!existsSync(multiOutletMigration)) throw new Error(`File migration tidak ditemukan: ${multiOutletMigration}`)
-  await client.query(await readFile(multiOutletMigration, 'utf8'))
+  const hasPaymentsTable = await first<{ paymentsTable: string | null }>(client, `SELECT to_regclass('public.payments') AS "paymentsTable"`)
+  if (!hasPaymentsTable?.paymentsTable) {
+    const multiOutletMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0002_multi_outlet_payments.sql')
+    if (!existsSync(multiOutletMigration)) throw new Error(`File migration tidak ditemukan: ${multiOutletMigration}`)
+    await client.query(await readFile(multiOutletMigration, 'utf8'))
+  }
 
-  const outletProductsMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0003_outlet_products.sql')
-  if (!existsSync(outletProductsMigration)) throw new Error(`File migration tidak ditemukan: ${outletProductsMigration}`)
-  await client.query(await readFile(outletProductsMigration, 'utf8'))
+  const hasOutletProductsTable = await first<{ outletProductsTable: string | null }>(client, `SELECT to_regclass('public.outlet_products') AS "outletProductsTable"`)
+  if (!hasOutletProductsTable?.outletProductsTable) {
+    const outletProductsMigration = path.resolve(process.cwd(), 'netlify', 'database', 'migrations', '0003_outlet_products.sql')
+    if (!existsSync(outletProductsMigration)) throw new Error(`File migration tidak ditemukan: ${outletProductsMigration}`)
+    await client.query(await readFile(outletProductsMigration, 'utf8'))
+  }
 
-  for (const role of permissionRoles) {
-    for (const module of permissionModules) {
-      await client.query(`
-        INSERT INTO role_permissions (role, module, enabled)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (role, module) DO NOTHING
-      `, [role, module.key, defaultRolePermissions[role].includes(module.key)])
+  if (isFresh) {
+    for (const role of permissionRoles) {
+      for (const module of permissionModules) {
+        await client.query(`
+          INSERT INTO role_permissions (role, module, enabled)
+          VALUES ($1, $2, $3)
+          ON CONFLICT (role, module) DO NOTHING
+        `, [role, module.key, defaultRolePermissions[role].includes(module.key)])
+      }
     }
-  }
-  await client.query("UPDATE role_permissions SET enabled = (role = 'admin'), updated_at = CURRENT_TIMESTAMP WHERE module = 'rbac'")
+    await client.query("UPDATE role_permissions SET enabled = (role = 'admin'), updated_at = CURRENT_TIMESTAMP WHERE module = 'rbac'")
 
-  for (const key of franchiseSettingKeys) {
-    await client.query('INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, defaultFranchiseSettings[key] ?? ''])
-  }
+    for (const key of franchiseSettingKeys) {
+      await client.query('INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [key, defaultFranchiseSettings[key] ?? ''])
+    }
 
-  const seedUsers: Array<{ name: string; email: string; password: string; role: UserRole }> = [
-    { name: 'Cashier Store', email: (process.env.APP_CASHIER_EMAIL || 'cashier@franchise.local').toLowerCase(), password: process.env.APP_CASHIER_PASSWORD || 'cashier123', role: 'cashier' },
-    { name: 'Manager Store', email: (process.env.APP_MANAGER_EMAIL || 'manager@franchise.local').toLowerCase(), password: process.env.APP_MANAGER_PASSWORD || 'manager123', role: 'manager' },
-    { name: 'Admin Store', email: (process.env.APP_ADMIN_EMAIL || 'admin@franchise.local').toLowerCase(), password: process.env.APP_ADMIN_PASSWORD || 'admin123', role: 'admin' },
-  ]
-  for (const user of seedUsers) {
-    await client.query(`
-      INSERT INTO users (name, email, password_hash, role)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (LOWER(email)) DO NOTHING
-    `, [user.name, user.email, hashPassword(user.password), user.role])
-  }
-  await client.query(`UPDATE users SET outlet_id=(SELECT id FROM outlets WHERE is_default=TRUE LIMIT 1) WHERE outlet_id IS NULL AND role IN ('cashier','manager')`)
+    const seedUsers: Array<{ name: string; email: string; password: string; role: UserRole }> = [
+      { name: 'Cashier Store', email: (process.env.APP_CASHIER_EMAIL || 'cashier@franchise.local').toLowerCase(), password: process.env.APP_CASHIER_PASSWORD || 'cashier123', role: 'cashier' },
+      { name: 'Manager Store', email: (process.env.APP_MANAGER_EMAIL || 'manager@franchise.local').toLowerCase(), password: process.env.APP_MANAGER_PASSWORD || 'manager123', role: 'manager' },
+      { name: 'Admin Store', email: (process.env.APP_ADMIN_EMAIL || 'admin@franchise.local').toLowerCase(), password: process.env.APP_ADMIN_PASSWORD || 'admin123', role: 'admin' },
+    ]
+    for (const user of seedUsers) {
+      await client.query(`
+        INSERT INTO users (name, email, password_hash, role)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (LOWER(email)) DO NOTHING
+      `, [user.name, user.email, hashPassword(user.password), user.role])
+    }
+    await client.query(`UPDATE users SET outlet_id=(SELECT id FROM outlets WHERE is_default=TRUE LIMIT 1) WHERE outlet_id IS NULL AND role IN ('cashier','manager')`)
 
-  const categories = [
-    ['Paket', '🍱', 10], ['Ayam', '🍗', 20], ['Burger', '🍔', 30], ['Snack', '🍟', 40], ['Minuman', '🥤', 50],
-  ] as const
-  for (const category of categories) {
-    await client.query(`
-      INSERT INTO menu_categories (label, emoji, sort_order)
-      VALUES ($1, $2, $3) ON CONFLICT (LOWER(label)) DO NOTHING
-    `, [...category])
-  }
-
-  const productCount = await first<{ count: string }>(client, 'SELECT COUNT(*) AS count FROM products')
-  if (numberValue(productCount?.count) === 0) {
-    const products = [
-      ['Paket Andalan', '2 menu utama, nasi hangat, dan minuman segar.', 43900, 51900, 'Paket', '🍱', 'gold', 'Paling laris', false],
-      ['Menu Original', 'Menu favorit dengan rasa khas dan tekstur renyah.', 18900, null, 'Ayam', '🍗', 'cream', 'Favorit', false],
-      ['Menu Pedas Spesial', 'Menu pedas manis yang cocok untuk pencinta rasa kuat.', 23900, null, 'Ayam', '🌶️', 'red', 'Baru', true],
-      ['Burger Spesial', 'Burger isi protein, sayuran, dan saus creamy.', 28900, null, 'Burger', '🍔', 'orange', null, false],
-      ['Double Crunch Burger', 'Dua lapis ayam krispi untuk lapar yang serius.', 36900, null, 'Burger', '🍔', 'yellow', 'Extra puas', false],
-      ['Kentang Bumbu', 'Kentang renyah dengan pilihan bumbu gurih.', 15900, null, 'Snack', '🍟', 'pink', null, false],
-      ['Bites Sharing', 'Potongan menu praktis, pas buat sharing.', 24900, null, 'Snack', '🍿', 'peach', null, false],
-      ['Minuman Dingin', 'Minuman dingin dan menyegarkan.', 9900, null, 'Minuman', '🥤', 'blue', null, false],
+    const categories = [
+      ['Paket', '🍱', 10], ['Ayam', '🍗', 20], ['Burger', '🍔', 30], ['Snack', '🍟', 40], ['Minuman', '🥤', 50],
     ] as const
-    for (const product of products) {
+    for (const category of categories) {
       await client.query(`
-        INSERT INTO products (name, description, price, original_price, category, emoji, tone, badge, spicy)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      `, [...product])
+        INSERT INTO menu_categories (label, emoji, sort_order)
+        VALUES ($1, $2, $3) ON CONFLICT (LOWER(label)) DO NOTHING
+      `, [...category])
     }
-  }
 
-  const promotionCount = await first<{ count: string }>(client, 'SELECT COUNT(*) AS count FROM promotions')
-  if (numberValue(promotionCount?.count) === 0) {
-    await client.query(`
-      INSERT INTO promotions (title, description, code, discount_type, discount_value, min_order, active)
-      VALUES ('Berdua Lebih Hemat', 'Nikmati paket pilihan untuk makan berdua dengan harga spesial.', 'HEMAT25', 'percentage', 25, 50000, TRUE)
-    `)
+    const productCount = await first<{ count: string }>(client, 'SELECT COUNT(*) AS count FROM products')
+    if (numberValue(productCount?.count) === 0) {
+      const products = [
+        ['Paket Andalan', '2 menu utama, nasi hangat, dan minuman segar.', 43900, 51900, 'Paket', '🍱', 'gold', 'Paling laris', false],
+        ['Menu Original', 'Menu favorit dengan rasa khas dan tekstur renyah.', 18900, null, 'Ayam', '🍗', 'cream', 'Favorit', false],
+        ['Menu Pedas Spesial', 'Menu pedas manis yang cocok untuk pencinta rasa kuat.', 23900, null, 'Ayam', '🌶️', 'red', 'Baru', true],
+        ['Burger Spesial', 'Burger isi protein, sayuran, dan saus creamy.', 28900, null, 'Burger', '🍔', 'orange', null, false],
+        ['Double Crunch Burger', 'Dua lapis ayam krispi untuk lapar yang serius.', 36900, null, 'Burger', '🍔', 'yellow', 'Extra puas', false],
+        ['Kentang Bumbu', 'Kentang renyah dengan pilihan bumbu gurih.', 15900, null, 'Snack', '🍟', 'pink', null, false],
+        ['Bites Sharing', 'Potongan menu praktis, pas buat sharing.', 24900, null, 'Snack', '🍿', 'peach', null, false],
+        ['Minuman Dingin', 'Minuman dingin dan menyegarkan.', 9900, null, 'Minuman', '🥤', 'blue', null, false],
+      ] as const
+      for (const product of products) {
+        await client.query(`
+          INSERT INTO products (name, description, price, original_price, category, emoji, tone, badge, spicy)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `, [...product])
+      }
+    }
+
+    const promotionCount = await first<{ count: string }>(client, 'SELECT COUNT(*) AS count FROM promotions')
+    if (numberValue(promotionCount?.count) === 0) {
+      await client.query(`
+        INSERT INTO promotions (title, description, code, discount_type, discount_value, min_order, active)
+        VALUES ('Berdua Lebih Hemat', 'Nikmati paket pilihan untuk makan berdua dengan harga spesial.', 'HEMAT25', 'percentage', 25, 50000, TRUE)
+      `)
+    }
   }
 })
 
@@ -367,7 +377,12 @@ export async function ensureDefaultRolePermissions() {
   await initialize()
 }
 
+let rolePermissionsCache: Record<string, Record<PermissionModule, boolean>> | null = null
+
 export async function getRolePermissions(role: UserRole): Promise<Record<PermissionModule, boolean>> {
+  if (rolePermissionsCache && rolePermissionsCache[role]) {
+    return rolePermissionsCache[role]
+  }
   await initialize()
   const defaults = isPermissionRole(role) ? defaultRolePermissions[role] : []
   const permissions = Object.fromEntries(permissionModules.map((module) => [module.key, defaults.includes(module.key)])) as Record<PermissionModule, boolean>
@@ -375,6 +390,12 @@ export async function getRolePermissions(role: UserRole): Promise<Record<Permiss
   const stored = await rows(pool, 'SELECT module, enabled FROM role_permissions WHERE role=$1', [role])
   stored.forEach((row) => { if (isPermissionModule(String(row.module))) permissions[String(row.module) as PermissionModule] = Boolean(row.enabled) })
   if (role === 'admin') permissions.rbac = true
+
+  if (!rolePermissionsCache) {
+    rolePermissionsCache = {}
+  }
+  rolePermissionsCache[role] = permissions
+
   return permissions
 }
 
@@ -404,6 +425,7 @@ export async function updateRolePermissions(input: Partial<Record<PermissionRole
     }
     await client.query("UPDATE role_permissions SET enabled=(role='admin'), updated_at=CURRENT_TIMESTAMP WHERE module='rbac'")
   })
+  rolePermissionsCache = null
   return getRolePermissionMatrix()
 }
 
@@ -616,7 +638,7 @@ const getProductAddons = async (productId: number, includeInactive = false, data
   return addonRows.map((row) => ({ id: numberValue(row.id), name: String(row.name), price: numberValue(row.price), active: Boolean(row.active) }))
 }
 
-const mapProduct = async (row: Record<string, unknown>, includeInactiveAddons = false, database: Queryable = pool, useEffectivePrice = false): Promise<ProductRecord> => {
+const mapProduct = async (row: Record<string, unknown>, includeInactiveAddons = false, database: Queryable = pool, useEffectivePrice = false, preFetchedAddons?: ProductAddonRecord[]): Promise<ProductRecord> => {
   const basePrice = numberValue(row.basePrice ?? row.price)
   const effectivePrice = numberValue(row.effectivePrice ?? basePrice)
   const outletId = row.outletId === null || row.outletId === undefined ? undefined : numberValue(row.outletId)
@@ -634,7 +656,7 @@ const mapProduct = async (row: Record<string, unknown>, includeInactiveAddons = 
     badge: row.badge ? String(row.badge) : undefined,
     spicy: Boolean(row.spicy),
     active: Boolean(row.active),
-    addons: await getProductAddons(numberValue(row.id), includeInactiveAddons, database),
+    addons: preFetchedAddons || await getProductAddons(numberValue(row.id), includeInactiveAddons, database),
     outletAssignment: outletId ? {
       outletId,
       assigned: Boolean(row.outletAssigned),
@@ -668,7 +690,35 @@ export async function getProducts(includeInactive = false, database: Queryable =
     ${activeFilter}
     ORDER BY COALESCE(categories.sort_order,9999) ASC,products.id ASC
   `, values)
-  return Promise.all(productRows.map((row) => mapProduct(row, includeInactive, database, !includeInactive)))
+
+  const productIds = productRows.map((r) => numberValue(r.id))
+  let addonRows: any[] = []
+  if (productIds.length > 0) {
+    addonRows = await rows(database, `
+      SELECT id, product_id AS "productId", name, price, active
+      FROM product_addons
+      WHERE product_id = ANY($1::int[]) ${includeInactive ? '' : 'AND active=TRUE'}
+      ORDER BY id ASC
+    `, [productIds])
+  }
+
+  const addonsByProduct = new Map<number, ProductAddonRecord[]>()
+  for (const addon of addonRows) {
+    const pId = numberValue(addon.productId)
+    if (!addonsByProduct.has(pId)) addonsByProduct.set(pId, [])
+    addonsByProduct.get(pId)!.push({
+      id: numberValue(addon.id),
+      name: String(addon.name),
+      price: numberValue(addon.price),
+      active: Boolean(addon.active),
+    })
+  }
+
+  return Promise.all(productRows.map((row) => {
+    const pId = numberValue(row.id)
+    const productAddons = addonsByProduct.get(pId) || []
+    return mapProduct(row, includeInactive, database, !includeInactive, productAddons)
+  }))
 }
 
 const getProductById = async (id: number, database: Queryable = pool, outletId?: number, useEffectivePrice = false) => {
@@ -1151,9 +1201,22 @@ export async function deleteFinancialEntry(outletId: number, id: number) {
 
 export async function getReportData(outletId: number, from: string, to: string) {
   await initialize()
-  const [summaryRow, itemsSoldRow, dailyRows, topRows, paymentRows, customerRows, cogsRow, entries, expenseRows, allTimeSales, allTimeEntries, inventoryItems] = await Promise.all([
-    first(pool, `SELECT COUNT(*) AS transactions,COALESCE(SUM(subtotal),0) AS "grossSales",COALESCE(SUM(discount_amount),0) AS discounts,COALESCE(SUM(total),0) AS "netRevenue",COALESCE(AVG(total),0) AS "averageOrder" FROM orders WHERE outlet_id=$1 AND status!='cancelled' AND (payment_method='cash' OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id=orders.id AND payments.status='paid')) AND created_at::date BETWEEN $2 AND $3`, [outletId, from, to]),
-    first(pool, `SELECT COALESCE(SUM(items.quantity),0) AS count FROM order_items items JOIN orders ON orders.id=items.order_id WHERE orders.outlet_id=$1 AND orders.status!='cancelled' AND (orders.payment_method='cash' OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id=orders.id AND payments.status='paid')) AND orders.created_at::date BETWEEN $2 AND $3`, [outletId, from, to]),
+  const [combinedStatsRow, dailyRows, topRows, paymentRows, customerRows, cogsRow, entries, allTimeSales, allTimeEntries, inventoryItems] = await Promise.all([
+    first(pool, `
+      WITH order_stats AS (
+        SELECT id, subtotal, discount_amount, total
+        FROM orders
+        WHERE outlet_id=$1 AND status!='cancelled' AND (payment_method='cash' OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id=orders.id AND payments.status='paid')) AND created_at::date BETWEEN $2 AND $3
+      )
+      SELECT
+        COUNT(*) AS transactions,
+        COALESCE(SUM(subtotal),0) AS "grossSales",
+        COALESCE(SUM(discount_amount),0) AS discounts,
+        COALESCE(SUM(total),0) AS "netRevenue",
+        COALESCE(AVG(total),0) AS "averageOrder",
+        (SELECT COALESCE(SUM(quantity),0) FROM order_items WHERE order_id IN (SELECT id FROM order_stats)) AS "itemsSold"
+      FROM order_stats
+    `, [outletId, from, to]),
     rows(pool, `
       WITH order_daily AS (
         SELECT created_at::date AS date,COUNT(*) AS transactions,SUM(subtotal) AS "grossSales",SUM(discount_amount) AS discounts,SUM(total) AS revenue
@@ -1175,18 +1238,28 @@ export async function getReportData(outletId: number, from: string, to: string) 
       WHERE orders.outlet_id=$1 AND orders.status != 'cancelled' AND (orders.payment_method='cash' OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id=orders.id AND payments.status='paid')) AND orders.created_at::date BETWEEN $2 AND $3
     `, [outletId, from, to]),
     getFinancialEntries(outletId, from, to),
-    rows(pool, `SELECT category,SUM(amount) AS amount FROM financial_entries WHERE outlet_id=$1 AND type='expense' AND entry_date BETWEEN $2 AND $3 GROUP BY category ORDER BY amount DESC`, [outletId, from, to]),
     first(pool, "SELECT COALESCE(SUM(total),0) AS amount FROM orders WHERE outlet_id=$1 AND status!='cancelled' AND (payment_method='cash' OR EXISTS (SELECT 1 FROM payments WHERE payments.order_id=orders.id AND payments.status='paid'))", [outletId]),
     first(pool, `SELECT COALESCE(SUM(CASE WHEN type='capital_in' THEN amount ELSE 0 END),0) AS "capitalIn",COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expenses,COALESCE(SUM(CASE WHEN type='capital_out' THEN amount ELSE 0 END),0) AS "capitalOut" FROM financial_entries WHERE outlet_id=$1`, [outletId]),
     getInventoryItems(outletId, true),
   ])
 
-  const summary = { transactions: numberValue(summaryRow.transactions), grossSales: numberValue(summaryRow.grossSales), discounts: numberValue(summaryRow.discounts), netRevenue: numberValue(summaryRow.netRevenue), averageOrder: Math.round(numberValue(summaryRow.averageOrder)), itemsSold: numberValue(itemsSoldRow.count) }
+  const summary = { transactions: numberValue(combinedStatsRow.transactions), grossSales: numberValue(combinedStatsRow.grossSales), discounts: numberValue(combinedStatsRow.discounts), netRevenue: numberValue(combinedStatsRow.netRevenue), averageOrder: Math.round(numberValue(combinedStatsRow.averageOrder)), itemsSold: numberValue(combinedStatsRow.itemsSold) }
   const dailySales = dailyRows.map((row) => ({ date: dateValue(row.date), transactions: numberValue(row.transactions), itemsSold: numberValue(row.itemsSold), grossSales: numberValue(row.grossSales), discounts: numberValue(row.discounts), revenue: numberValue(row.revenue) }))
   const topProducts = topRows.map((row) => ({ productId: numberValue(row.productId), productName: String(row.productName), quantity: numberValue(row.quantity), revenue: numberValue(row.revenue) }))
   const paymentMethods = paymentRows.map((row) => ({ paymentMethod: row.paymentMethod as PaymentMethod, transactions: numberValue(row.transactions), revenue: numberValue(row.revenue) }))
   const customers = customerRows.map((row) => ({ customerId: numberValue(row.customerId), name: String(row.name), email: String(row.email), orderCount: numberValue(row.orderCount), totalSpent: numberValue(row.totalSpent), lastOrder: isoValue(row.lastOrder) }))
-  const expensesByCategory = expenseRows.map((row) => ({ category: String(row.category), amount: numberValue(row.amount) }))
+  
+  // Calculate expense rows in-memory from entries
+  const expenseMap = new Map<string, number>()
+  for (const entry of entries) {
+    if (entry.type === 'expense') {
+      expenseMap.set(entry.category, (expenseMap.get(entry.category) || 0) + entry.amount)
+    }
+  }
+  const expensesByCategory = Array.from(expenseMap.entries())
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((a, b) => b.amount - a.amount)
+
   const expenseTotal = entries.filter((entry) => entry.type === 'expense').reduce((sum, entry) => sum + entry.amount, 0)
   const capitalIn = entries.filter((entry) => entry.type === 'capital_in').reduce((sum, entry) => sum + entry.amount, 0)
   const capitalOut = entries.filter((entry) => entry.type === 'capital_out').reduce((sum, entry) => sum + entry.amount, 0)

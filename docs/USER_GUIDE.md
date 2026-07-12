@@ -103,6 +103,9 @@ Akses ke modul operasional diatur melalui RBAC. Tabel berikut menunjukkan pengat
 11. Jika Midtrans belum dikonfigurasi pada komputer lokal, halaman simulator akan terbuka. Pilih **Simulasikan berhasil** atau **Simulasikan gagal** untuk menguji alur tanpa uang sungguhan.
 12. Saat memakai Midtrans sandbox/production, selesaikan pembayaran pada halaman Midtrans. Status pembayaran akan diperbarui melalui webhook.
 
+> [!IMPORTANT]
+> Transaksi online (QRIS, E-wallet, Transfer bank) memiliki batas waktu pembayaran **15 menit**. Jika tidak dibayar dalam 15 menit, pesanan akan kedaluwarsa secara otomatis dan stok inventaris akan dibebaskan kembali.
+
 > Mengganti outlet akan mengosongkan keranjang agar produk tidak divalidasi terhadap stok cabang yang salah.
 
 ### Melacak pesanan
@@ -349,6 +352,7 @@ Setiap perubahan fitur, role, API, database, alur pengguna, atau UI utama wajib 
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan panduan master produk global dan assignment per outlet, termasuk harga khusus, status aktif/tersedia, dampak pada katalog, serta pemecahan masalah produk outlet. |
 | 2026-07-12 | Menambahkan panduan tampilan seragam seluruh modul Manager/Admin, termasuk letak tindakan, pola panel terang, dan penyesuaian navigasi pada layar ponsel. |
 | 2026-07-12 | Menambahkan panduan memilih dan mengelola outlet, menempatkan cashier, serta memahami pemisahan pesanan, stok, dan laporan per cabang. |

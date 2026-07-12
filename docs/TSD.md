@@ -134,7 +134,7 @@ Tabel utama:
 - `server/payments.ts` memilih Midtrans sandbox/production berdasarkan `MIDTRANS_IS_PRODUCTION`. Jika `MIDTRANS_SERVER_KEY` kosong, provider otomatis berubah menjadi `simulator`.
 - Pembuatan transaksi Snap dilakukan dari backend dengan HTTP Basic menggunakan Server Key. Frontend hanya menerima URL redirect.
 - Endpoint webhook memvalidasi SHA-512 dari `order_id + status_code + gross_amount + server_key`, lalu membandingkan nominal notifikasi dengan total order.
-- Status Midtrans dipetakan ke `pending`, `paid`, `failed`, `expired`, atau `refunded`. Status gagal/kedaluwarsa memanggil pembatalan order sehingga stok dikembalikan.
+- Status Midtrans dipetakan ke `pending`, `paid`, `failed`, `expired`, atau `refunded`. Status gagal/kedaluwarsa memanggil pembatalan order sehingga stok dikembalikan. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit melalui parameter Snap `expiry` untuk mencegah penguncian stok jangka panjang.
 - `updateOrderStatus()` menolak proses order online yang belum berstatus `paid`.
 
 ### Inventory
@@ -192,6 +192,21 @@ Field yang dipakai aplikasi:
 - `aboutDescription`
 - `aboutReviewQuote`
 - `aboutReviewAuthor`
+
+### Optimasi Performa Database dan Serverless
+
+Untuk mencegah bottleneck performa pada database PostgreSQL dan mengurangi latensi *cold start* serverless, sistem mengimplementasikan teknik optimasi berikut:
+
+1. **Eliminasi Kueri N+1 pada Produk**:
+   Fungsi `getProducts` tidak lagi melakukan kueri add-on untuk setiap produk secara sekuensial. Semua add-on untuk produk yang relevan diambil secara bulk dalam satu kueri SQL menggunakan filter `product_id = ANY($1::int[])` dan dikelompokkan dalam memori.
+2. **Caching Otorisasi Dinamis**:
+   Hak akses peran disimpan di memori (`rolePermissionsCache`) setelah kueri pertama dan dibersihkan otomatis jika ada pembaruan matriks RBAC.
+3. **Peningkatan Koneksi Pool**:
+   Connection pool PostgreSQL dinaikkan menjadi `max: 20` untuk mendukung peningkatan beban kueri analitik dashboard.
+4. **Optimasi Kueri Laporan**:
+   Kueri statistik dashboard (`summaryRow` dan `itemsSoldRow`) digabung menjadi satu kueri menggunakan CTE (*Common Table Expression*). Kategori pengeluaran (`expenseRows`) dihitung langsung dari data entri keuangan di memori tanpa kueri agregasi tambahan.
+5. **Verifikasi Migrasi Cepat**:
+   Fungsi `seedDatabase` menggunakan `to_regclass` untuk mendeteksi keberadaan tabel sebelum memuat file SQL migrasi dari disk atau menjalankan seed, yang meminimalkan overhead cold-start di lingkungan serverless.
 
 ## 4. API utama
 
@@ -281,7 +296,7 @@ JWT memakai secret dari `APP_JWT_SECRET`. Role yang didukung:
 
 Admin disimpan sebagai user biasa, dengan akun awal `admin@franchise.local`. Setelah login, `homePathForRole()` memilih halaman utama berdasarkan role: Customer ke `/`, Cashier ke `/cashier`, Manager ke `/manager`, dan Admin ke `/admin`. Rute `/admin` dan `/manager` sama-sama menggunakan `ManagerApp`, tetapi aplikasi tetap memeriksa sesi dan mengalihkan pengguna jika URL tidak sesuai dengan role. Endpoint lama `/api/auth/admin` masih dipertahankan untuk kompatibilitas API, meskipun UI utama Admin kini berada di `/admin`.
 
-Untuk setiap token yang memiliki `userId`, middleware memastikan akun masih ada, masih aktif, dan role di database sesuai dengan isi token. Karena itu, sesi lama otomatis tidak dapat digunakan lagi setelah akun dinonaktifkan atau dihapus.
+Untuk setiap token yang memiliki `userId`, middleware memastikan akun masih ada, masih aktif, dan role di database sesuai dengan isi token. Hasil kueri user tersebut disimpan dalam request context (`request.user`) dan digunakan kembali di `resolveOutletId` untuk menghemat kueri database sekuensial. Karena itu, sesi lama otomatis tidak dapat digunakan lagi setelah akun dinonaktifkan atau dihapus.
 
 Frontend menyimpan token di localStorage dengan key generik:
 
@@ -382,6 +397,7 @@ Setiap perubahan kode yang memengaruhi fitur, API, database, role, pengaturan br
 
 | Tanggal | Perubahan teknis |
 |---|---|
+| 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan migrasi `0003_outlet_products.sql`, kontrak assignment, query harga efektif, endpoint assignment per outlet, filter kategori/katalog storefront, validasi checkout server-side, dan UI pengaturan produk pada outlet aktif. |
 | 2026-07-12 | Membatasi CSS footer storefront ke `.app-shell > footer` dan menambahkan sistem visual bersama pada `manager.css` agar seluruh modul Manager/Admin memakai panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif yang konsisten. |
 | 2026-07-12 | Menambahkan tabel `outlets`, foreign key outlet pada user/order/inventory/keuangan, unique SKU per outlet, resolver `X-Outlet-Id`, CRUD outlet, scoping query, pemilih outlet, dan permission `outlets`. |

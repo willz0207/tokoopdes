@@ -106,6 +106,7 @@ interface AuthPayload {
 }
 interface AuthenticatedRequest extends Request {
   auth?: AuthPayload
+  user?: any
 }
 
 const requireRoles = (...roles: AppRole[]) => async (request: Request, response: Response, next: NextFunction) => {
@@ -117,6 +118,7 @@ const requireRoles = (...roles: AppRole[]) => async (request: Request, response:
     if (payload.userId) {
       const user = await getUserById(payload.userId)
       if (!user || !user.active || user.role !== payload.role) return response.status(401).json({ message: 'Akun sudah tidak aktif. Silakan hubungi manager.' })
+      ;(request as AuthenticatedRequest).user = user
     } else if (payload.role !== 'admin') {
       return response.status(401).json({ message: 'Sesi login tidak valid.' })
     }
@@ -150,9 +152,10 @@ const requireAnyModuleAccess = (modules: PermissionModule[], ...roles: AppRole[]
 
 const resolveOutletId = async (request: Request) => {
   const auth = (request as AuthenticatedRequest).auth
+  const cachedUser = (request as AuthenticatedRequest).user
   const requested = Number(request.headers['x-outlet-id'] || request.query.outletId)
   if (auth?.role === 'cashier' && auth.userId) {
-    const user = await getUserById(auth.userId)
+    const user = cachedUser || await getUserById(auth.userId)
     if (!user?.outletId) throw new Error('Akun cashier belum ditempatkan pada outlet.')
     return user.outletId
   }
@@ -162,7 +165,7 @@ const resolveOutletId = async (request: Request) => {
     return outlet.id
   }
   if (auth?.userId) {
-    const user = await getUserById(auth.userId)
+    const user = cachedUser || await getUserById(auth.userId)
     if (user?.outletId && await getOutletById(user.outletId)) return user.outletId
   }
   return (await getDefaultOutlet()).id

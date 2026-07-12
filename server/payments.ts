@@ -55,6 +55,10 @@ export async function createPaymentSession(order: PaymentOrder): Promise<Payment
       transaction_details: { order_id: order.id, gross_amount: order.total },
       customer_details: { first_name: order.customerName, email: order.email || undefined, phone: order.phone },
       callbacks: { finish: `${process.env.PUBLIC_APP_URL || 'http://localhost:5175'}/orders?payment=${encodeURIComponent(order.id)}` },
+      expiry: {
+        duration: 15,
+        unit: 'minute'
+      }
     }),
   })
   const data = await response.json().catch(() => ({})) as { token?: string; redirect_url?: string; error_messages?: string[] }

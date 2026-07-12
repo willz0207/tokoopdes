@@ -138,7 +138,7 @@ Setelah disimpan, perubahan tersebut langsung diterapkan pada halaman toko, logi
 - Integrasi utama menggunakan Midtrans Snap dengan mode sandbox atau production melalui environment variable.
 - Backend membuat token dan URL pembayaran; Server Key tidak pernah dikirim ke frontend.
 - Webhook Midtrans memverifikasi `signature_key` dan nominal transaksi sebelum memperbarui status pembayaran.
-- Status yang didukung adalah `unpaid`, `pending`, `paid`, `failed`, `expired`, dan `refunded`.
+- Status yang didukung adalah `unpaid`, `pending`, `paid`, `failed`, `expired`, dan `refunded`. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit agar stok barang segera dilepaskan kembali jika tidak dibayar.
 - Halaman `/payment-simulator` hanya digunakan pada development lokal ketika Server Key Midtrans belum tersedia.
 
 ### Inventory
@@ -220,6 +220,7 @@ Setiap perubahan fitur, alur bisnis, API, database, role, atau UI utama harus me
 
 | Tanggal | Perubahan |
 |---|---|
+| 2026-07-12 | Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check `to_regclass`, serta menambahkan masa berlaku pembayaran Snap 15 menit. |
 | 2026-07-12 | Menambahkan assignment produk per outlet, harga khusus, status aktif/tersedia per cabang, filter katalog outlet, dan validasi checkout berbasis `outlet_products`, sementara kategori dan master produk tetap global. |
 | 2026-07-12 | Menyeragamkan tampilan seluruh modul Manager/Admin—Produk, Kategori, Promosi, Cashier, Inventory, Report, Outlet, Franchise, dan RBAC—dengan panel terang, area tindakan konsisten, serta layout responsif. |
 | 2026-07-12 | Menambahkan multi-outlet untuk pesanan, cashier, inventory, transaksi keuangan, dan laporan; melengkapi dashboard dengan pemilih outlet serta modul CRUD cabang. |

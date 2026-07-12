@@ -431,7 +431,7 @@ def build_fsd() -> None:
             "Checkout memvalidasi status master produk, kategori, assignment outlet, status konfigurasi outlet, dan ketersediaan produk.",
             "Harga checkout memakai harga khusus outlet jika diisi; jika tidak, sistem memakai harga master produk.",
             "Pesanan tersimpan di database.",
-            "Pembayaran QRIS, e-wallet, dan transfer bank membuat sesi Midtrans; tanpa API key, aplikasi memakai simulator lokal.",
+            "Pembayaran QRIS, e-wallet, dan transfer bank membuat sesi Midtrans; tanpa API key, aplikasi memakai simulator lokal. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit melalui parameter Snap expiry untuk mencegah penguncian stok jangka panjang.",
             "Pesanan online hanya dapat diproses setelah berstatus paid. Pembayaran gagal atau kedaluwarsa membatalkan order dan mengembalikan stok.",
             "Jika nomor WhatsApp toko tersedia, aplikasi membuka WhatsApp dengan pesan konfirmasi.",
         ),
@@ -566,6 +566,7 @@ def build_fsd() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan assignment produk per outlet, harga khusus, status aktif/tersedia per cabang, filter katalog outlet, dan validasi checkout berbasis outlet_products, sementara kategori dan master produk tetap global."),
             ("2026-07-12", "Menyeragamkan tampilan seluruh modul Manager/Admin—Produk, Kategori, Promosi, Cashier, Inventory, Report, Outlet, Franchise, dan RBAC—dengan panel terang, area tindakan konsisten, serta layout responsif."),
             ("2026-07-12", "Menambahkan multi-outlet untuk pesanan, cashier, inventory, transaksi keuangan, dan laporan; melengkapi dashboard dengan pemilih outlet serta modul CRUD cabang."),
@@ -804,7 +805,16 @@ def build_tsd() -> None:
         "payments berelasi unik ke orders dan menyimpan provider, status, token, redirect URL, transaction ID, nominal, raw response, dan paid_at.",
         "server/payments.ts memakai Midtrans sandbox/production atau simulator saat MIDTRANS_SERVER_KEY kosong.",
         "Webhook memvalidasi SHA-512 order_id + status_code + gross_amount + server_key serta mencocokkan nominal order.",
-        "Status gagal/kedaluwarsa membatalkan order dan mengembalikan stok; order online belum paid tidak dapat diproses.",
+        "Status gagal/kedaluwarsa membatalkan order dan mengembalikan stok; order online belum paid tidak dapat diproses. Sesi pembayaran online Midtrans diatur kedaluwarsa otomatis dalam 15 menit melalui parameter Snap expiry untuk mencegah penguncian stok jangka panjang.",
+    ))
+
+    add_heading(doc, "3.11 Optimasi Performa Database dan Serverless", 2)
+    add_bullets(doc, (
+        "Eliminasi Kueri N+1 pada Produk: Fungsi getProducts mem-bulk fetch add-on untuk semua produk dalam satu kueri SQL menggunakan ANY($1::int[]) dan memetakan di memori.",
+        "Caching Otorisasi Dinamis: Hak akses disimpan di memori (rolePermissionsCache) dan dibersihkan otomatis ketika matriks RBAC diperbarui.",
+        "Peningkatan Koneksi Pool: Connection pool PostgreSQL dinaikkan menjadi max: 20 untuk mendukung beban kueri analitik dashboard.",
+        "Optimasi Kueri Laporan: Kueri statistik dashboard digabung dengan CTE, dan pengeluaran dikalkulasi di memori dari entri transaksi.",
+        "Verifikasi Migrasi Cepat: seedDatabase menggunakan to_regclass untuk mendeteksi keberadaan tabel, mempercepat cold start serverless.",
     ))
 
     add_heading(doc, "4. API Utama", 1)
@@ -823,10 +833,9 @@ def build_tsd() -> None:
     )
 
     add_heading(doc, "5. Auth dan Role", 1)
-    add_body(doc, "JWT memakai secret dari APP_JWT_SECRET. Role yang didukung:")
-    add_bullets(doc, ("customer", "cashier", "manager", "admin"))
+    add_body(doc, "JWT memakai secret dari APP_JWT_SECRET. Role yang didukung: customer, cashier, manager, dan admin.")
     add_body(doc, "Admin disimpan sebagai user biasa. Setelah login, homePathForRole memilih halaman utama berdasarkan role: Customer ke /, Cashier ke /cashier, Manager ke /manager, dan Admin ke /admin. Rute /admin dan /manager sama-sama menggunakan ManagerApp, tetapi aplikasi tetap mengalihkan pengguna jika URL tidak sesuai dengan role sesi. Endpoint /api/auth/admin dipertahankan untuk kompatibilitas API lama.")
-    add_body(doc, "Untuk setiap token yang memiliki userId, middleware memastikan akun masih ada, masih aktif, dan role di database sesuai dengan isi token. Sesi lama tidak dapat digunakan lagi setelah akun dinonaktifkan atau dihapus.")
+    add_body(doc, "Untuk setiap token yang memiliki userId, middleware memastikan akun masih ada, masih aktif, dan role di database sesuai dengan isi token. Hasil kueri user tersebut disimpan dalam request context (request.user) dan digunakan kembali di resolveOutletId untuk menghemat kueri database sekuensial. Sesi lama tidak dapat digunakan lagi setelah akun dinonaktifkan atau dihapus.")
     add_body(doc, "Frontend menyimpan token dan data sesi di localStorage dengan key generik:")
     add_table(
         doc,
@@ -926,6 +935,7 @@ def build_tsd() -> None:
         doc,
         ("Tanggal", "Perubahan teknis"),
         (
+            ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan migrasi 0003_outlet_products.sql, kontrak assignment, query harga efektif, endpoint assignment per outlet, filter kategori/katalog storefront, validasi checkout server-side, dan UI pengaturan produk pada outlet aktif."),
             ("2026-07-12", "Membatasi CSS footer storefront ke .app-shell > footer dan menambahkan sistem visual bersama pada manager.css agar seluruh modul Manager/Admin memakai panel, kartu, tabel, toolbar, modal, action area, hover/focus, dan layout responsif yang konsisten."),
             ("2026-07-12", "Menambahkan tabel outlets, foreign key outlet pada user/order/inventory/keuangan, unique SKU per outlet, resolver X-Outlet-Id, CRUD outlet, scoping query, pemilih outlet, dan permission outlets."),
@@ -1077,6 +1087,7 @@ def build_user_guide() -> None:
             "Tanpa API key Midtrans, gunakan Simulasikan berhasil/gagal pada halaman lokal. Dengan Midtrans, selesaikan pembayaran pada halaman provider.",
         ),
     )
+    add_info_box(doc, "Batas Waktu Pembayaran Online", "Transaksi online (QRIS, E-wallet, Transfer bank) memiliki batas waktu pembayaran 15 menit. Jika tidak dibayar dalam 15 menit, pesanan akan kedaluwarsa secara otomatis dan stok inventaris akan dibebaskan kembali.")
     add_info_box(doc, "Ganti outlet", "Mengganti outlet akan mengosongkan keranjang agar validasi stok tidak tercampur antar cabang.")
 
     add_heading(doc, "3.4 Melacak Pesanan", 2)
@@ -1297,6 +1308,7 @@ def build_user_guide() -> None:
         doc,
         ("Tanggal", "Perubahan"),
         (
+            ("2026-07-12", "Mengoptimasi performa backend: meningkatkan pg pool size ke 20, mengatasi bottleneck kueri N+1 pada produk via bulk fetch addons, mengimplementasi cache matriks otorisasi role, menggabungkan kueri statistik dashboard dengan CTE, mempercepat cold-start migrasi via check to_regclass, serta menambahkan masa berlaku pembayaran Snap 15 menit."),
             ("2026-07-12", "Menambahkan panduan master produk global dan assignment per outlet, termasuk harga khusus, status aktif/tersedia, dampak pada katalog, serta pemecahan masalah produk outlet."),
             ("2026-07-12", "Menambahkan panduan tampilan seragam seluruh modul Manager/Admin, termasuk letak tindakan, pola panel terang, dan penyesuaian navigasi pada layar ponsel."),
             ("2026-07-12", "Menambahkan panduan memilih dan mengelola outlet, menempatkan cashier, serta memahami pemisahan pesanan, stok, dan laporan per cabang."),
