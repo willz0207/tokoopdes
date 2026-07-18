@@ -2,6 +2,20 @@
 
 Website pemesanan online berbasis React + TypeScript dengan backend Express dan database PostgreSQL. Saat development, frontend, API, dan database berjalan lokal tanpa Netlify. Project ini dibuat agar bisa dipakai untuk berbagai franchise makanan/minuman tanpa brand hardcode.
 
+## Dibangun bersama Codex & GPT-5.6
+
+> **AI-assisted engineering:** Codex dan GPT-5.6 digunakan sebagai rekan pengembangan untuk membantu mengubah kebutuhan bisnis menjadi implementasi yang dapat dijalankan, diuji, dan didokumentasikan.
+
+Penggunaannya mencakup:
+
+- Menganalisis kebutuhan dan merancang alur pelanggan, Cashier, Manager, serta Admin.
+- Membantu implementasi React/TypeScript, Express, PostgreSQL, RBAC, multi-outlet, pembayaran, inventory, report, dan aplikasi Android Capacitor.
+- Menelusuri penyebab error pada frontend, API, database, port development, deployment, Android SDK, emulator, dan Gradle.
+- Menjalankan build, pemeriksaan TypeScript, pengujian responsif, validasi endpoint, serta verifikasi APK Android.
+- Menjaga FSD, TSD, dan User Guide tetap sinkron dalam format Markdown dan Word setiap kali fitur utama berubah.
+
+Codex dan GPT-5.6 mempercepat proses engineering, sedangkan keputusan bisnis, credential, data produksi, validasi kebutuhan, dan persetujuan akhir tetap berada di tangan pengelola project.
+
 ## Fitur utama
 
 - Landing page toko yang bisa dikustom oleh manager.
